@@ -1,0 +1,123 @@
+data:
+  # Relative paths are resolved from Analysis/Clean_TCGA_E2M_prediction.
+  # All downloaded and cached input data for this clean workflow stays here.
+  data_dir: "data"
+  output_path: "output"
+  cache_dir: "cache"
+
+  # Xena cohort STAR count files are genes x samples and are loaded per cohort.
+  expression_dir: "star_counts"
+  expression_measure: "counts"
+  expression_log2_count_plus_one: true
+  expression_log1p: true
+  expression_url_template: "https://gdc-hub.s3.us-east-1.amazonaws.com/download/TCGA-{cancer}.star_{measure}.tsv.gz"
+
+  # GENCODE v36 matches the Xena STAR cohort probemap used by the previous workflow.
+  gene_name_mapping_file: "annotations/gencode.v36.annotation.gtf.gene.probemap"
+  gene_name_mapping_url: "https://gdc-hub.s3.us-east-1.amazonaws.com/download/gencode.v36.annotation.gtf.gene.probemap"
+  gene_annotation_file: "annotations/gencode.v36.annotation.gtf.gz"
+  gene_annotation_url: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_36/gencode.v36.annotation.gtf.gz"
+
+  # MC3 gene-level matrices for mutation-label prediction.
+  mutation_dir: "mc3_gene_level"
+  mutation_file_template: "{cancer}_mc3_gene_level.txt.gz"
+  mutation_url_template: "https://tcga-xena-hub.s3.us-east-1.amazonaws.com/download/mc3_gene_level%2F{cancer}_mc3_gene_level.txt.gz"
+  mutation_url_fallback_templates:
+    - "https://tcga-xena-hub.s3.dualstack.us-east-1.amazonaws.com/download/mc3_gene_level%2F{cancer}_mc3_gene_level.txt.gz"
+    - "https://tcga-pancan-atlas-hub.s3.us-east-1.amazonaws.com/download/mc3_gene_level%2F{cancer}_mc3_gene_level.txt.gz"
+  add_a_suffix_to_mutation_samples: true
+
+  # Per-cohort MC3 event files for TMB regression.
+  # TMB is counted from event-level coding variants, not from gene-level labels.
+  mc3_event_dir: "mc3"
+  mc3_event_file_template: "{cancer}_mc3.txt.gz"
+  mc3_event_url_template: "https://tcga-xena-hub.s3.us-east-1.amazonaws.com/download/mc3%2F{cancer}_mc3.txt.gz"
+  mc3_event_url_fallback_templates:
+    - "https://tcga-xena-hub.s3.dualstack.us-east-1.amazonaws.com/download/mc3%2F{cancer}_mc3.txt.gz"
+  coding_variant_classes:
+    - Missense_Mutation
+    - Frame_Shift_Del
+    - Frame_Shift_Ins
+    - Nonsense_Mutation
+    - Nonstop_Mutation
+    - In_Frame_Del
+    - In_Frame_Ins
+    - Translation_Start_Site
+    - Splice_Site
+
+  download_missing: true
+  use_cache: true
+  only_protein_coding_expression: true
+  only_protein_coding_mutations: true
+  collapse_duplicate_gene_symbols: true
+
+  # These are the non-composite TCGA disease cohorts used for the all-cohort run.
+  # Composite Xena collections such as PANCAN, LUNG, GBMLGG, COADREAD, and FPPP
+  # are intentionally excluded from the default all run to avoid duplicate samples.
+  download_cancer_types:
+    - ACC
+    - BLCA
+    - BRCA
+    - CESC
+    - CHOL
+    - COAD
+    - DLBC
+    - ESCA
+    - GBM
+    - HNSC
+    - KICH
+    - KIRC
+    - KIRP
+    - LGG
+    - LIHC
+    - LUAD
+    - LUSC
+    - MESO
+    - OV
+    - PAAD
+    - PCPG
+    - PRAD
+    - READ
+    - SARC
+    - SKCM
+    - STAD
+    - TGCT
+    - THCA
+    - THYM
+    - UCEC
+    - UCS
+    - UVM
+
+  min_mutations_per_gene: 0.05
+  top_k_mutation_genes: 400
+
+preprocessing:
+  random_state: 42
+
+model:
+  xgboost:
+    n_estimators: 300
+    learning_rate: 0.1
+    random_state: 42
+    n_jobs: -1
+  multitask_nn:
+    hidden_layers: [512, 256]
+    dropout_rate: 0.3
+    learning_rate: 0.0005
+    weight_decay: 0.0003
+    batch_size: 64
+    epochs: 100
+    patience: 6
+    validation_split: 0.15
+    gradient_clip: 1.0
+    use_pos_weight: true
+    normalize_inputs: true
+
+interpretation:
+  norm_score_threshold: 0.05
+  top_n_shap_features_per_sample: 20
+  top_n_shap_beeswarm_features: 20
+  save_shap_app_outputs: true
+
+evaluation:
+  cv_folds: 5

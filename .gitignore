@@ -1,0 +1,15 @@
+# Cluster-only files
+submit/
+*.submit
+*.sh
+!Runs/*/scripts/*.sh
+
+# Data and outputs
+data/
+output/
+cache/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
