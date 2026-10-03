@@ -6,7 +6,7 @@ submit/
 
 # Data and outputs
 data/
-output/
+output*/
 cache/
 
 # Python / Jupyter

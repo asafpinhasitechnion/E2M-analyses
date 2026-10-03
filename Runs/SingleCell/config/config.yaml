@@ -1,0 +1,27 @@
+random_state: 42
+cv_folds: 5
+multitask_preset: simple_wide_run      # src/models/presets.py
+preprocess_target_sum: 10000.0         # normalize_total target before log1p
+
+xgboost:
+  n_estimators: 300
+  learning_rate: 0.1
+  n_jobs: -1
+
+# scPerturb files (Zenodo record 7041849), under data/
+zenodo_record_id: "7041849"
+dataset_files:
+  adamson_10X001: AdamsonWeissman2016_GSM2406675_10X001.h5ad   # pilot single-gene UPR-TF screen
+  adamson_10X005: AdamsonWeissman2016_GSM2406677_10X005.h5ad   # combinatorial UPR-sensor screen
+  adamson: AdamsonWeissman2016_GSM2406681_10X010.h5ad          # large single-gene screen
+  mcfarland: McFarlandTsherniak2020.h5ad
+  replogle_k562: ReplogleWeissman2022_K562_essential.h5ad
+  replogle_rpe1: ReplogleWeissman2022_rpe1.h5ad
+  frangieh: FrangiehIzar2021_RNA.h5ad
+  zhao: ZhaoSims2021.h5ad
+  tian_crispra: TianKampmann2021_CRISPRa.h5ad
+
+# CCLE inputs (placed manually under data/CCLE)
+ccle_files:
+  adata: CCLE_adata.h5ad
+  mutations: OmicsSomaticMutations.csv
