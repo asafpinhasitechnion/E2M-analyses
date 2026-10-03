@@ -1,0 +1,100 @@
+version: external_validation_v10
+random_seed: 42
+
+data:
+  # Relative paths are resolved from Runs/External.
+  external_root: data/external
+
+tcga:
+  # Per-cancer Xena GDC hub files: TCGA-<CANCER>.star_<counts|tpm>.tsv.gz
+  expression_dir: data/tcga/expression
+  gene_name_mapping: data/tcga/annotations/gencode.v36.annotation.gtf.gene.probemap
+  gene_annotation: data/tcga/annotations/gencode.v36.annotation.gtf.gz
+  mutation_dir: data/tcga/mc3_gene_level
+  mutation_file_template: "{cancer}_mc3_gene_level.txt.gz"
+  expression_log_transformed: true
+  only_protein_coding: true
+  min_mutations_per_gene: 1
+
+target_selection:
+  min_tcga_mutated_samples: 10
+  min_tcga_mutation_prevalence: 0.03
+
+clinical:
+  min_site_samples: 20
+
+model:
+  multitask_nn:
+    hidden_layers: [512, 256]
+    dropout_rate: 0.3
+    learning_rate: 0.0005
+    weight_decay: 0.0003
+    batch_size: 64
+    epochs: 100
+    patience: 6
+    validation_split: 0.15
+    gradient_clip: 1.0
+    use_pos_weight: true
+    normalize_inputs: true
+
+# method: combat_seq (raw counts), combat (continuous values; log1p per side as set), gene_rank.
+# target_ranking: use the top_n genes of a TCGA cross-validation summary instead of the prevalence threshold.
+cohorts:
+  CPTAC_CMI:
+    data_dir: CMI_CPTAC
+    tcga_cancer_types: null
+    tcga_expression_measure: counts
+    method: combat_seq
+
+  IMMUNOPOG:
+    data_dir: IMMUNOPOG
+    tcga_cancer_types: null
+    tcga_expression_measure: counts
+    method: combat_seq
+
+  METABRIC:
+    data_dir: METABRIC
+    tcga_cancer_types: [BRCA]
+    tcga_expression_measure: tpm
+    method: combat
+    normalization:
+      log1p_train: true   # TCGA TPM is linear
+      log1p_test: false   # METABRIC microarray values are already log-scaled
+
+  HUGO:
+    data_dir: HUGO
+    tcga_cancer_types: [SKCM]
+    tcga_expression_measure: counts
+    method: combat_seq
+    target_ranking: {file: Melanoma_gene_metrics.csv, top_n: 20}
+
+  LIU:
+    data_dir: LIU
+    tcga_cancer_types: [SKCM]
+    tcga_expression_measure: counts
+    method: combat_seq
+    target_ranking: {file: Melanoma_gene_metrics.csv, top_n: 20}
+
+  RIAZ:
+    data_dir: RIAZ
+    tcga_cancer_types: [SKCM]
+    tcga_expression_measure: counts
+    method: combat_seq
+    target_ranking: {file: Melanoma_gene_metrics.csv, top_n: 20}
+
+  VAN_ALLEN:
+    data_dir: VAN_ALLEN
+    tcga_cancer_types: [SKCM]
+    tcga_expression_measure: tpm
+    method: combat
+    normalization:
+      log1p_train: true   # TCGA TPM is linear
+      log1p_test: true    # Van Allen RSEM TPM is linear
+    target_ranking: {file: Melanoma_gene_metrics.csv, top_n: 20}
+
+  MORRISON:
+    data_dir: MORRISON
+    tcga_cancer_types: [SKCM]
+    tcga_expression_measure: counts
+    method: gene_rank
+    target_ranking: {file: Melanoma_gene_metrics.csv, top_n: 20}
