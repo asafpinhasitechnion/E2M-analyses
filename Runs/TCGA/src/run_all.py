@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from main import DEFAULT_CONFIG_PATH, run_mutation_prediction
+from main import DEFAULT_CONFIG_PATH, load_config, run_mutation_prediction
 from preprocessing.star_counts_loader import DEFAULT_TCGA_COHORTS
 from tmb_prediction import run_tmb_prediction
 
@@ -12,7 +12,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run clean STAR-count prediction for each TCGA cohort and all cohorts.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--tasks", nargs="+", choices=["mutation", "tmb"], default=["mutation", "tmb"])
-    parser.add_argument("--cohorts", nargs="+", default=DEFAULT_TCGA_COHORTS)
+    parser.add_argument("--cohorts", nargs="+", help="Default: data.download_cancer_types from the config.")
     parser.add_argument("--skip-all", action="store_true")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--keep-fold-dirs", action="store_true")
@@ -20,6 +20,8 @@ def main() -> None:
     parser.add_argument("--max-shap-samples", type=int)
     parser.add_argument("--embeddings-only", action="store_true")
     args = parser.parse_args()
+    if not args.cohorts:
+        args.cohorts = load_config(args.config).get("data", {}).get("download_cancer_types") or DEFAULT_TCGA_COHORTS
 
     cohort_jobs: list[tuple[str, ...] | None] = [(cohort,) for cohort in args.cohorts]
     if not args.skip_all:
