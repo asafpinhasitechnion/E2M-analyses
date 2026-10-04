@@ -1,0 +1,168 @@
+data:
+  # Relative paths are resolved from Runs/ClinicalDrivers.
+  standardized_dir: data/standardized          # written by prepare_cbioportal.py / prepare_geo.py
+  metabric_dir: data/external/METABRIC         # cBioPortal brca_metabric files (read directly)
+  tcga_mc3_events: data/mc3.v0.2.8.PUBLIC.toil.xena.gz   # TCGA MC3 events for alteration-level labels
+
+tcga:
+  # Per-cancer Xena GDC hub files, same layout as Runs/External
+  expression_dir: data/tcga/expression
+  gene_name_mapping: data/tcga/annotations/gencode.v36.annotation.gtf.gene.probemap
+  gene_annotation: data/tcga/annotations/gencode.v36.annotation.gtf.gz
+  mutation_dir: data/tcga/mc3_gene_level
+  mutation_file_template: "{cancer}_mc3_gene_level.txt.gz"
+
+xgboost:
+  n_estimators: 300
+  learning_rate: 0.1
+  random_state: 42
+  n_jobs: -1
+
+target_selection:
+  min_tcga_positive: 3
+  min_external_positive: 5
+
+# drivers: key into CANCER_DRIVER_GENES (src/driver_genes.py).
+# Expression is ComBat-integrated (TCGA vs cohort); log1p is applied per side before ComBat.
+cohorts:
+  paad_iatlas_prince_2022:
+    label: PRINCE PDAC trial
+    cancer: metastatic pancreatic adenocarcinoma
+    drivers: PAAD
+    tcga_cancers: [PAAD]
+    tcga_expression_measure: counts
+    external_expression_type: log2 upper-quartile normalized counts
+    log1p_tcga: true
+    log1p_external: false
+
+  paad_qcmg_uq_2016:
+    label: Pancreatic Adenocarcinoma, QCMG / Bailey 2016
+    cancer: pancreatic adenocarcinoma
+    drivers: PAAD
+    tcga_cancers: [PAAD]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq V2 RSEM continuous
+    log1p_tcga: true
+    log1p_external: true
+
+  luad_cas_2020:
+    label: CAS LUAD 2020
+    cancer: lung adenocarcinoma
+    drivers: LUAD
+    tcga_cancers: [LUAD]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq FPKM
+    log1p_tcga: true
+    log1p_external: true
+
+  luad_oncosg_2020:
+    label: OncoSG LUAD 2020
+    cancer: lung adenocarcinoma
+    drivers: LUAD
+    tcga_cancers: [LUAD]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq V2 RSEM z-scores
+    log1p_tcga: true
+    log1p_external: false
+
+  difg_glass:
+    label: GLASS Consortium
+    cancer: diffuse glioma
+    drivers: GLIOMA
+    tcga_cancers: [LGG, GBM]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq TPM
+    log1p_tcga: true
+    log1p_external: true
+
+  metabric:
+    label: METABRIC
+    cancer: breast cancer
+    drivers: BRCA
+    tcga_cancers: [BRCA]
+    tcga_expression_measure: tpm
+    external_expression_type: Illumina microarray
+    log1p_tcga: true
+    log1p_external: false
+
+  GSE39582:
+    label: GSE39582 / Marisa / CIT
+    cancer: colon cancer
+    drivers: COLO
+    tcga_cancers: [COAD, READ]
+    tcga_expression_measure: tpm
+    external_expression_type: GPL570 Affymetrix microarray
+    log1p_tcga: true
+    log1p_external: false
+    tumor_only: true
+
+  GSE31210:
+    label: GSE31210 / Okayama
+    cancer: lung adenocarcinoma
+    drivers: LUAD
+    tcga_cancers: [LUAD]
+    tcga_expression_measure: tpm
+    external_expression_type: GPL570 Affymetrix microarray
+    log1p_tcga: true
+    log1p_external: false
+
+  # POG570 is pan-cancer; each split uses the matching TCGA cancer type.
+  pog570_bcgsc_2020__BRCA:
+    source: pog570_bcgsc_2020
+    label: POG570 BRCA
+    cancer: BRCA
+    drivers: BRCA
+    tcga_cancers: [BRCA]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq RPKM
+    log1p_tcga: true
+    log1p_external: true
+    filter: {column: ANALYSIS_COHORT, values: [BRCA]}
+
+  pog570_bcgsc_2020__COLO:
+    source: pog570_bcgsc_2020
+    label: POG570 colorectal
+    cancer: colorectal
+    drivers: COLO
+    tcga_cancers: [COAD, READ]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq RPKM
+    log1p_tcga: true
+    log1p_external: true
+    filter: {column: ANALYSIS_COHORT, values: [COLO]}
+
+  pog570_bcgsc_2020__LUAD:
+    source: pog570_bcgsc_2020
+    label: POG570 LUAD
+    cancer: LUAD
+    drivers: LUAD
+    tcga_cancers: [LUAD]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq RPKM
+    log1p_tcga: true
+    log1p_external: true
+    filter: {column: ONCOTREE_CODE, values: [LUAD]}
+
+  pog570_bcgsc_2020__PAAD:
+    source: pog570_bcgsc_2020
+    label: POG570 PAAD
+    cancer: PAAD
+    drivers: PAAD
+    tcga_cancers: [PAAD]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq RPKM
+    log1p_tcga: true
+    log1p_external: true
+    filter: {column: ONCOTREE_CODE, values: [PAAD]}
+
+  pog570_bcgsc_2020__CHOL:
+    source: pog570_bcgsc_2020
+    label: POG570 cholangiocarcinoma
+    cancer: cholangiocarcinoma
+    drivers: CHOL
+    tcga_cancers: [CHOL]
+    tcga_expression_measure: tpm
+    external_expression_type: RNA-seq RPKM
+    log1p_tcga: true
+    log1p_external: true
+    filter: {column: ANALYSIS_COHORT, values: [CHOL]}

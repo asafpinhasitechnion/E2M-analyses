@@ -1,0 +1,135 @@
+{
+  "phase1_cbioportal": [
+    {
+      "study_id": "pog570_bcgsc_2020",
+      "label": "POG570 / BCGSC 2020",
+      "cancer": "advanced/metastatic pan-cancer",
+      "priority": 1,
+      "primary_targets": [
+        "KRAS",
+        "NRAS",
+        "HRAS",
+        "BRAF",
+        "EGFR",
+        "PIK3CA",
+        "TP53",
+        "IDH1",
+        "FGFR3",
+        "ERBB2",
+        "BRCA1",
+        "BRCA2"
+      ]
+    },
+    {
+      "study_id": "paad_qcmg_uq_2016",
+      "label": "Pancreatic Adenocarcinoma, QCMG / Bailey 2016",
+      "cancer": "pancreatic adenocarcinoma",
+      "priority": 1,
+      "primary_targets": [
+        "KRAS",
+        "TP53",
+        "SMAD4",
+        "CDKN2A",
+        "ARID1A",
+        "BRAF"
+      ]
+    },
+    {
+      "study_id": "paad_iatlas_prince_2022",
+      "label": "PRINCE PDAC trial",
+      "cancer": "metastatic pancreatic adenocarcinoma",
+      "priority": 1,
+      "primary_targets": [
+        "KRAS",
+        "TP53",
+        "SMAD4",
+        "CDKN2A",
+        "ARID1A",
+        "BRAF"
+      ]
+    },
+    {
+      "study_id": "luad_oncosg_2020",
+      "label": "OncoSG LUAD 2020",
+      "cancer": "lung adenocarcinoma",
+      "priority": 1,
+      "primary_targets": [
+        "EGFR",
+        "KRAS",
+        "BRAF",
+        "ALK",
+        "MET",
+        "ERBB2",
+        "RET",
+        "ROS1",
+        "TP53",
+        "STK11",
+        "KEAP1"
+      ]
+    },
+    {
+      "study_id": "luad_cas_2020",
+      "label": "CAS LUAD 2020",
+      "cancer": "lung adenocarcinoma",
+      "priority": 2,
+      "primary_targets": [
+        "EGFR",
+        "KRAS",
+        "BRAF",
+        "ALK",
+        "MET",
+        "ERBB2",
+        "RET",
+        "ROS1",
+        "TP53",
+        "STK11",
+        "KEAP1"
+      ]
+    },
+    {
+      "study_id": "difg_glass",
+      "label": "GLASS Consortium",
+      "cancer": "diffuse glioma",
+      "priority": 2,
+      "primary_targets": [
+        "IDH1",
+        "IDH2",
+        "TP53",
+        "ATRX",
+        "CIC",
+        "FUBP1",
+        "CDKN2A",
+        "PTEN",
+        "EGFR"
+      ]
+    }
+  ],
+  "phase2_geo": [
+    {
+      "accession": "GSE39582",
+      "label": "GSE39582 / Marisa / CIT",
+      "cancer": "colon cancer",
+      "priority": 1,
+      "primary_targets": [
+        "KRAS",
+        "BRAF",
+        "TP53",
+        "PIK3CA",
+        "APC",
+        "MMR",
+        "CIMP"
+      ]
+    },
+    {
+      "accession": "GSE31210",
+      "label": "GSE31210 / Okayama",
+      "cancer": "lung adenocarcinoma",
+      "priority": 2,
+      "primary_targets": [
+        "EGFR",
+        "KRAS",
+        "ALK"
+      ]
+    }
+  ]
+}
