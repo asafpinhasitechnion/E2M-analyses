@@ -213,70 +213,16 @@ class MultitaskMutationModel(BaseModel):
         if best_state is not None:
             self.model.load_state_dict(best_state)
 
-    def fit_full_dataset(self, X: np.ndarray | pd.DataFrame, y: np.ndarray | pd.DataFrame):
-        """Train the model on the full dataset without validation split."""
-        if isinstance(X, pd.DataFrame):
-            X = X.values
-        if isinstance(y, pd.DataFrame):
-            y = y.values
-
-        X = np.asarray(X, dtype=np.float32)
-        y = np.asarray(y, dtype=np.float32)
-
-        if not np.isfinite(X).all():
-            raise ValueError("Input features contain NaNs or infs. Please clean the data before training.")
-        if not np.isfinite(y).all():
-            raise ValueError("Target matrix contains NaNs or infs.")
-
-        if self.normalize_inputs:
-            self.scaler = StandardScaler()
-            X = self.scaler.fit_transform(X).astype(np.float32)
-        else:
-            self.scaler = None
-
-        X_tensor = torch.from_numpy(X)
-        y_tensor = torch.from_numpy(y)
-
-        train_loader = DataLoader(
-            TensorDataset(X_tensor, y_tensor),
-            batch_size=self.batch_size,
-            shuffle=True,
-            drop_last=False
-        )
-
-        if self.use_pos_weight:
-            pos_counts = y_tensor.sum(dim=0)
-            neg_counts = y_tensor.shape[0] - pos_counts
-            pos_weight = torch.where(pos_counts > 0, neg_counts / pos_counts, torch.ones_like(pos_counts))
-            pos_weight = torch.clamp(pos_weight, min=1.0, max=1e6)
-            pos_weight = pos_weight.to(self.device)
-        else:
-            pos_weight = None
-
-        self.model = self._build_network().to(self.device)
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        self.optimizer = optim.Adam(params, lr=self.lr, weight_decay=self.weight_decay)
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight) if pos_weight is not None else nn.BCEWithLogitsLoss()
-
-        self.training_history = []
-        for epoch in range(self.epochs):
-            train_loss = self._run_epoch(train_loader, train=True)
-            self.training_history.append({
-                'epoch': epoch,
-                'train_loss': train_loss,
-                'lr': self.optimizer.param_groups[0]['lr']
-            })
-
     def get_head_weights(self):
         """Extract the weights of the final linear layer in the head."""
         if self.model is None:
-            raise ValueError("Model has not been trained yet. Call fit() or fit_full_dataset() first.")
+            raise ValueError("Model has not been trained yet. Call fit() first.")
         return self.model.get_head_weights()
 
     def get_sample_embeddings(self, X: np.ndarray | pd.DataFrame):
         """Get encoder/feature extractor embeddings for input samples."""
         if self.model is None:
-            raise ValueError("Model has not been trained yet. Call fit() or fit_full_dataset() first.")
+            raise ValueError("Model has not been trained yet. Call fit() first.")
 
         if isinstance(X, pd.DataFrame):
             X = X.values

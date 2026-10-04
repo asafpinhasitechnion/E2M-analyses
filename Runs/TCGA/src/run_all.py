@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--keep-fold-dirs", action="store_true")
     parser.add_argument("--skip-shap", action="store_true")
     parser.add_argument("--max-shap-samples", type=int)
+    parser.add_argument("--embeddings-only", action="store_true")
     args = parser.parse_args()
 
     cohort_jobs: list[tuple[str, ...] | None] = [(cohort,) for cohort in args.cohorts]
@@ -35,6 +36,7 @@ def main() -> None:
                 keep_fold_dirs=args.keep_fold_dirs,
                 run_shap_step=not args.skip_shap,
                 max_shap_samples=args.max_shap_samples,
+                embeddings_only=args.embeddings_only,
             )
         if "tmb" in args.tasks:
             run_tmb_prediction(

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import shutil
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 import yaml
 
 from models.model_factory import ModelFactory
@@ -34,6 +36,13 @@ def cohort_label(cancer_types: tuple[str, ...] | None) -> str:
     return "_".join(sorted(ct.upper() for ct in cancer_types))
 
 
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 def limit_mutation_genes_topk(mutation_data: pd.DataFrame, top_k: int | None) -> pd.DataFrame:
     if top_k is None or top_k <= 0 or mutation_data.shape[1] <= top_k:
         return mutation_data
@@ -50,10 +59,13 @@ def run_mutation_prediction(
     run_shap_step: bool = True,
     job_id: int = 0,
     max_shap_samples: int | None = None,
+    embeddings_only: bool = False,
 ) -> dict:
     config_path = Path(config_path)
     config = load_config(config_path)
     config.setdefault("model", {})["name"] = "multitask_nn"
+    if embeddings_only:
+        run_shap_step = False
 
     loader = StarCountsTCGALoader(config_path=config_path, use_cache=use_cache)
     cohorts = loader.normalize_cancer_types(list(cancer_types) if cancer_types else None)
@@ -100,23 +112,26 @@ def run_mutation_prediction(
 
     cv_folds = config.get("evaluation", {}).get("cv_folds", 5)
     random_state = config.get("preprocessing", {}).get("random_state", 42)
-    print(f"Running {cv_folds}-fold mutation prediction for {cohort_label(cancer_types)}...")
-    run_kfold_training(
-        model=model,
-        X=expression_data,
-        Y=mutation_data,
-        k=cv_folds,
-        output_dir=kfold_dir,
-        config_meta=metadata,
-        random_state=random_state,
-        label="multitask_nn",
-    )
+    if not embeddings_only:
+        set_seed(random_state)
+        print(f"Running {cv_folds}-fold mutation prediction for {cohort_label(cancer_types)}...")
+        run_kfold_training(
+            model=model,
+            X=expression_data,
+            Y=mutation_data,
+            k=cv_folds,
+            output_dir=kfold_dir,
+            config_meta=metadata,
+            random_state=random_state,
+            label="multitask_nn",
+        )
 
-    if not keep_fold_dirs:
-        for fold_dir in kfold_dir.glob("fold_*"):
-            if fold_dir.is_dir():
-                shutil.rmtree(fold_dir)
+        if not keep_fold_dirs:
+            for fold_dir in kfold_dir.glob("fold_*"):
+                if fold_dir.is_dir():
+                    shutil.rmtree(fold_dir)
 
+    set_seed(random_state)
     mt_cfg = config.get("model", {}).get("multitask_nn", {})
     head_weights = train_and_extract_head_weights(
         model_factory=model_factory,
@@ -178,6 +193,7 @@ def main() -> None:
     parser.add_argument("--skip-shap", action="store_true", help="Run prediction and embeddings but skip SHAP.")
     parser.add_argument("--max-shap-samples", type=int, help="Optional cap on samples used for SHAP.")
     parser.add_argument("--job-id", type=int, default=0, help="Condor process id used in SHAP feature permutations.")
+    parser.add_argument("--embeddings-only", action="store_true", help="Only train the full-data model and extract embeddings.")
     args = parser.parse_args()
 
     run_mutation_prediction(
@@ -188,6 +204,7 @@ def main() -> None:
         run_shap_step=not args.skip_shap,
         job_id=args.job_id,
         max_shap_samples=args.max_shap_samples,
+        embeddings_only=args.embeddings_only,
     )
 
 

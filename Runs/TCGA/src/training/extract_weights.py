@@ -49,8 +49,8 @@ def train_and_extract_head_weights(
         config={"model": {"multitask_nn": model_config}},
     )
 
-    print("   Training on full dataset (no validation split)...")
-    model.fit_full_dataset(X, Y)
+    print("   Training on full dataset (internal validation split for early stopping)...")
+    model.fit(X, Y)
 
     print("   Extracting head weights...")
     head_weight_matrix = model.get_head_weights()  # Shape: (n_genes, hidden_size)
