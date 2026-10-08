@@ -55,7 +55,8 @@ def compute_binary_metrics(
     specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
     return {
         "roc_auc": _safe_metric(roc_auc_score, y_true, y_prob),
-        "average_precision": _safe_metric(average_precision_score, y_true, y_prob),
+        # No AUPRC without positives (sklearn would return 0)
+        "average_precision": _safe_metric(average_precision_score, y_true, y_prob) if y_true.any() else float("nan"),
         "f1": _safe_metric(f1_score, y_true, y_pred),
         "accuracy": _safe_metric(accuracy_score, y_true, y_pred),
         "precision": _safe_metric(precision_score, y_true, y_pred, zero_division=0),

@@ -230,8 +230,13 @@ def table_s3() -> dict[str, pd.DataFrame]:
     }
 
 
+def normalized_auprc(auprc, prevalence):
+    """(AUPRC - prevalence) / (1 - prevalence), as for TCGA and the external cohorts."""
+    return (auprc - prevalence) / (1 - prevalence)
+
+
 def table_s4() -> dict[str, pd.DataFrame]:
-    # S4a: multitask perturbation prediction, mean over folds
+    # S4a: multitask perturbation prediction, mean over folds (folds without positives have no AUPRC and are skipped)
     datasets = [
         ("Adamson (broad)", "Adamson_10X010", "genetic (CRISPRi)", "cell"),
         ("Adamson UPR", "Adamson_10X005", "genetic (CRISPRi)", "cell"),
@@ -243,23 +248,27 @@ def table_s4() -> dict[str, pd.DataFrame]:
     rows = []
     for name, folder, modality, group in datasets:
         folds = pd.read_csv(SINGLE_CELL / folder / "metric_summary_per_gene_folds.csv")
+        folds = folds[folds["prevalence"] > 0].assign(normalized_auprc=lambda f: normalized_auprc(f["average_precision"], f["prevalence"]))
         agg = folds.groupby("gene").agg(n_folds=("fold", "nunique"), prevalence=("prevalence", "mean"),
-                                        mean_auprc=("average_precision", "mean"), mean_roc_auc=("roc_auc", "mean"))
+                                        mean_auprc=("average_precision", "mean"), mean_normalized_auprc=("normalized_auprc", "mean"),
+                                        mean_roc_auc=("roc_auc", "mean"))
         rows.append(agg.reset_index().rename(columns={"gene": "perturbation"})
                     .assign(dataset=name, modality=modality, cv_group=group))
     # Zhao/Sims: precision-recall only, from the out-of-fold predictions of the two drugs
     zhao = pd.read_csv(SINGLE_CELL / "Zhao" / "oof_probabilities_selected_targets.csv")
     summary = pd.read_csv(SINGLE_CELL / "Zhao" / "pr_curve_summary_selected_targets.csv").set_index("target")
     for drug in summary.index:
-        aps = [average_precision_score(f[f"y_true_{drug}"], f[drug]) for _, f in zhao.groupby("fold")]
+        folds = [(average_precision_score(f[f"y_true_{drug}"], f[drug]), f[f"y_true_{drug}"].mean())
+                 for _, f in zhao.groupby("fold") if f[f"y_true_{drug}"].any()]
+        aps, prevalences = np.array(folds).T
         rows.append(pd.DataFrame([{
-            "perturbation": drug, "n_folds": zhao["fold"].nunique(), "prevalence": summary.loc[drug, "baseline_prevalence"],
-            "mean_auprc": np.mean(aps), "mean_roc_auc": np.nan, "dataset": "Zhao/Sims", "modality": "drug", "cv_group": "sample",
+            "perturbation": drug, "n_folds": len(aps), "prevalence": prevalences.mean(), "mean_auprc": aps.mean(),
+            "mean_normalized_auprc": normalized_auprc(aps, prevalences).mean(), "mean_roc_auc": np.nan,
+            "dataset": "Zhao/Sims", "modality": "drug", "cv_group": "sample",
         }]))
     multitask = pd.concat(rows, ignore_index=True)
-    multitask["auprc_over_prevalence"] = multitask["mean_auprc"] / multitask["prevalence"]
     multitask = multitask[["dataset", "perturbation", "modality", "cv_group", "n_folds", "prevalence", "mean_auprc",
-                           "auprc_over_prevalence", "mean_roc_auc"]]
+                           "mean_normalized_auprc", "mean_roc_auc"]]
     multitask = multitask.sort_values(["dataset", "mean_auprc"], ascending=[True, False]).reset_index(drop=True)
 
     # S4b: Frangieh/Izar per-gene XGBoost
@@ -269,7 +278,7 @@ def table_s4() -> dict[str, pd.DataFrame]:
         "mean_auprc": per_gene["average_precision_mean"], "auprc_std": per_gene["average_precision_std"],
         "oof_auprc": per_gene["oof_average_precision"], "mean_roc_auc": per_gene["roc_auc_mean"],
     })
-    per_gene["auprc_over_prevalence"] = per_gene["mean_auprc"] / per_gene["prevalence"]
+    per_gene["normalized_auprc"] = normalized_auprc(per_gene["mean_auprc"], per_gene["prevalence"])
     per_gene = per_gene.sort_values("mean_auprc", ascending=False).reset_index(drop=True)
 
     # S4c: Frangieh/Izar per-gene XGBoost by condition
@@ -278,7 +287,7 @@ def table_s4() -> dict[str, pd.DataFrame]:
         "gene": cond["gene"], "condition": cond["condition"], "n_positives": cond["n_positives"],
         "prevalence": cond["oof_prevalence"], "auprc": cond["oof_average_precision"], "roc_auc": cond["oof_roc_auc"],
     })
-    cond["auprc_over_prevalence"] = cond["auprc"] / cond["prevalence"]
+    cond["normalized_auprc"] = normalized_auprc(cond["auprc"], cond["prevalence"])
     cond["_order"] = cond["gene"].map({g: i for i, g in enumerate(per_gene["gene"])})
     cond = cond.sort_values(["_order", "condition"]).drop(columns="_order").reset_index(drop=True)
 

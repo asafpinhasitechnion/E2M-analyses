@@ -82,17 +82,19 @@ def load_ccle_adata(
 
 def select_top_mutated_genes(
     mutations_csv: Path,
+    models,
     top_n: int,
     min_models: int = 20,
 ) -> List[str]:
-    """Return the genes with the most distinct mutated models (>= min_models)."""
+    """Return the genes mutated in the most of `models` (the cell lines in the data), at least min_models; ties by name."""
     valid = load_coding_mutations(mutations_csv)
+    valid = valid[valid["ModelID"].isin(set(models))]
     counts = (
         valid[["ModelID", "HugoSymbol"]]
         .drop_duplicates()
         .groupby("HugoSymbol")["ModelID"]
         .nunique()
-        .sort_values(ascending=False)
+        .sort_values(ascending=False, kind="stable")
     )
     counts = counts[counts >= int(min_models)]
     return counts.head(int(top_n)).index.astype(str).tolist()
@@ -222,14 +224,14 @@ def run_multitask_mutation_cv(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    top_genes = select_top_mutated_genes(mutations_csv, top_n=top_n, min_models=min_models_per_gene)
+    cell_models = adata.obs[model_column].astype(str).to_numpy()
+    top_genes = select_top_mutated_genes(mutations_csv, np.unique(cell_models), top_n=top_n, min_models=min_models_per_gene)
     if not top_genes:
         raise RuntimeError(f"No genes selected for top_n={top_n}, min_models_per_gene={min_models_per_gene}")
 
     pairs = load_coding_mutations(mutations_csv)[["ModelID", "HugoSymbol"]].drop_duplicates()
 
-    cell_models = adata.obs[model_column].astype(str).to_numpy()
-    Y = np.zeros((adata.n_obs, len(top_genes)), dtype=np.float32)
+    Y =np.zeros((adata.n_obs, len(top_genes)), dtype=np.float32)
     for j, g in enumerate(top_genes):
         mut_models = pairs.loc[pairs["HugoSymbol"] == g, "ModelID"].astype(str).to_numpy()
         Y[:, j] = np.isin(cell_models, mut_models).astype(np.float32)

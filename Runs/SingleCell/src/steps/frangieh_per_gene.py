@@ -72,7 +72,7 @@ def main() -> None:
         cell_line_name=infer_cell_line_name(FILE_NAME),
         model_type=MODEL_TYPE,
         gene_col=GENE_COL,
-        negative_mode="all",
+        negative_mode="selected_plus_non_targeting",  # same cells as the multitask model: the 79 perturbations and controls
         non_target_label=NON_TARGET_LABEL,
         n_splits=config.CV_FOLDS,
         random_state=config.RANDOM_STATE,

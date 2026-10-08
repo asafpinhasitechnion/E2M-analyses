@@ -57,7 +57,7 @@ Common to all scPerturb datasets:
 - Eligible targets: perturbation labels with at least `min_cells_per_gene` cells (mc300 or mc800), control labels excluded from the count. Cells with other (non-eligible) perturbations are dropped.
 - Controls: cells whose label is in the control list are kept as negatives (all targets 0). Default control labels: `non-targeting`, `control`. No subsampling of controls.
 - Labels: one binary output per eligible perturbation.
-- CV: 5 folds. Cell-level `KFold` (shuffled, seed 42) unless a group column is given, in which case `GroupKFold` on that column.
+- CV: 5 folds. Cell-level `KFold` (shuffled, seed 42) unless a group column is given, in which case `GroupKFold` on that column. A fold without positives for a target has no AUPRC (missing, not 0). Normalized AUPRC = (AUPRC - prevalence) / (1 - prevalence), as for TCGA.
 
 ### Adamson (Adamson/Weissman 2016)
 
@@ -97,7 +97,7 @@ Common to all scPerturb datasets:
   - Common normalization; label column `perturbation`; immune condition column `perturbation_2` (used only to report metrics per condition).
   - Minimum 800 cells per perturbation.
   - Multitask model: controls `non-targeting`, `control`; cell-level KFold. 136,396 cells (57,605 controls), 23,712 features, 79 targets.
-  - Per-gene XGBoost: same 79 perturbations (`control` excluded from the count). For each perturbation, positives are its cells and negatives are all other cells in the file (other perturbations and controls; 218,331 cells in total). CV: `StratifiedKFold` on cells (shuffled, seed 42), per gene.
+  - Per-gene XGBoost: same 79 perturbations (`control` excluded from the count). For each perturbation, positives are its cells and negatives are the cells of the other 78 perturbations and the controls, the same 136,396 cells as the multitask model. CV: `StratifiedKFold` on cells (shuffled, seed 42), per gene.
   - `frangieh_conditions` recomputes metrics within each value of `perturbation_2`, overall and per fold, from the saved held-out predictions of both models.
 
 ### McFarland (McFarland/Tsherniak 2020)
@@ -142,7 +142,7 @@ Common to all scPerturb datasets:
   - `sc.pp.filter_genes(min_cells=3)`, `sc.pp.normalize_total(target_sum=10000)`, `sc.pp.log1p`.
   - Mutations: coding rows only, by `VariantInfo`, as for TCGA: missense, nonsense, nonstop, frameshift, in-frame, start codon and splice site (MAF-like names up to DepMap 23Q2, which also list silent mutations; sequence-ontology terms from 23Q4). TMB of a model = number of such rows; the regression target is log1p(TMB), assigned to every cell of the model.
   - Cells whose model has no such mutation are removed.
-  - Multitask targets: the 150 genes mutated (coding rows) in the largest number of models, among genes mutated in at least 20 models. A cell is positive for a gene if its model carries a mutation in it.
+  - Multitask targets: the 150 genes mutated (coding rows) in the largest number of the 202 models in the data, among genes mutated in at least 20 of them (ties by gene name). A cell is positive for a gene if its model carries a mutation in it.
   - No HVG selection or batch correction.
   - CV: 5-fold `KFold` over unique `Model_ID`, so all cells of a cell line are in the same fold. Used for both the XGBoost regressor and the multitask network (same `simple_wide_run` preset).
   - Final size: 54,759 cells from 202 models, 150 target genes. TODO: number of features after `filter_genes` (printed to the log only).
