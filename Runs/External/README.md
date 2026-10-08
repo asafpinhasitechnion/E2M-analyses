@@ -61,4 +61,4 @@ Files go under `data/external/<folder>/`. METABRIC, Liu, Riaz and Morrison are d
 
 ## Outputs
 
-`output/<cohort>/<method>/`: `metrics.csv` (per target; `top_tcga_target` marks the melanoma top 20), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/runs_summary.csv` summarizes all runs.
+`output/<cohort>/<method>/`: `metrics.csv` (per target; `top_tcga_target` marks the melanoma top 20), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `expression_external.csv.gz` (the integrated expression the model was applied to), `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/runs_summary.csv` summarizes all runs.

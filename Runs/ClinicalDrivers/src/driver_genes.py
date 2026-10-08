@@ -1,10 +1,7 @@
 """Clinically focused driver-gene definitions for external validation QC."""
 
-# Candidate driver genes per cancer type -- the single source of truth. These
-# are the clinically relevant point/indel drivers for each tissue; fusion-driven
-# (ALK/ROS1/RET) and amplification-driven (ERBB2 in breast) genes are excluded.
-# Each cohort's candidates come from its cancer type and are then filtered per
-# dataset by select_targets (label existence + minimum positive counts).
+# Candidate driver genes per cancer type -- these
+# are the clinically relevant point/indel drivers for each tissue.
 CANCER_DRIVER_GENES = {
     "PAAD": ["KRAS", "TP53", "SMAD4", "CDKN2A"],
     "LUAD": ["EGFR", "KRAS", "TP53", "KEAP1", "STK11", "MET", "ERBB2", "BRAF"],

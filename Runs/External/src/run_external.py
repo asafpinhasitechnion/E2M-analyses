@@ -95,7 +95,7 @@ def run_cohort(cohort, settings, config, base, args, methods):
     rows = []
     for method in methods:
         started = time.time()
-        output = RUN_ROOT / "output" / cohort / method
+        output = args.output_dir / cohort / method
         output.mkdir(parents=True, exist_ok=True)
         train, test = integrate(tcga.expression, expression, method, external_batches=batches, **scales)
 
@@ -112,13 +112,14 @@ def run_cohort(cohort, settings, config, base, args, methods):
         clinical.reindex(test.index).to_csv(output / "clinical.csv.gz")
         model.embed(train).to_csv(output / "embeddings_tcga.csv.gz")
         model.embed(test).to_csv(output / "embeddings_external.csv.gz")
+        test.to_csv(output / "expression_external.csv.gz")  # the integrated expression the model was applied to
 
         if run["umap"] and not args.skip_umap:
             if before is None:
                 before = umap_coordinates(*integrate(tcga.expression, expression, "none", **scales), batches, label=cohort)
-            before.to_csv(output / "umap_before.csv")
+            before.to_csv(output / "umap_before.csv", index_label="sample")
             if method != "none":
-                umap_coordinates(train, test, batches, label=cohort).to_csv(output / "umap_after.csv")
+                umap_coordinates(train, test, batches, label=cohort).to_csv(output / "umap_after.csv", index_label="sample")
 
         summary = {**summarize(metrics), **({"top_targets": summarize(metrics[metrics["top_tcga_target"]])} if top else {})}
         manifest = {
@@ -148,6 +149,7 @@ def main():
     parser.add_argument("--cohorts", nargs="+", help="Default: all cohorts in the config.")
     parser.add_argument("--methods", nargs="+", help="Default: each cohort's methods in the config.")
     parser.add_argument("--skip-umap", action="store_true")
+    parser.add_argument("--output-dir", type=Path, default=RUN_ROOT / "output")
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
@@ -157,7 +159,7 @@ def main():
     for cohort in args.cohorts or list(config["cohorts"]):
         settings = config["cohorts"][cohort]
         rows += run_cohort(cohort, settings, config, base, args, args.methods or settings["methods"])
-    summary_path = RUN_ROOT / "output" / "runs_summary.csv"
+    summary_path = args.output_dir / "runs_summary.csv"
     if summary_path.exists():
         previous = pd.read_csv(summary_path)
         done = {(r["cohort"], r["method"]) for r in rows}

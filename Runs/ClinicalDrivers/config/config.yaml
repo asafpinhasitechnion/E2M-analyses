@@ -5,12 +5,9 @@ data:
   tcga_mc3_events: data/mc3.v0.2.8.PUBLIC.toil.xena.gz   # TCGA MC3 events for alteration-level labels
 
 tcga:
-  # Per-cancer Xena GDC hub files, same layout as Runs/External
-  expression_dir: data/tcga/expression
-  gene_name_mapping: data/tcga/annotations/gencode.v36.annotation.gtf.gene.probemap
-  gene_annotation: data/tcga/annotations/gencode.v36.annotation.gtf.gz
-  mutation_dir: data/tcga/mc3_gene_level
-  mutation_file_template: "{cancer}_mc3_gene_level.txt.gz"
+  # TCGA data are loaded with E2M (e2m.Dataset.from_tcga) from the TCGA run's data folder; missing files are downloaded there.
+  config: ../TCGA/config/e2m.yaml
+  data_dir: ../TCGA/data
 
 xgboost:
   n_estimators: 300

@@ -323,18 +323,6 @@ def load_sample_clinical(raw_dir: Path) -> pd.DataFrame:
     return clinical.set_index("sample_id", drop=False)
 
 
-def load_mutation_maf(raw_dir: Path, meta_records: list[dict[str, str]]) -> pd.DataFrame:
-    rel = choose_data_file(meta_records, alteration_type="MUTATION_EXTENDED", datatype="MAF")
-    if rel is None:
-        rel = choose_data_file(meta_records, alteration_type="MUTATION_EXTENDED")
-    if rel is None:
-        return pd.DataFrame()
-    maf = read_cbio_table(raw_dir / rel)
-    if "Tumor_Sample_Barcode" not in maf.columns and "SAMPLE_ID" in maf.columns:
-        maf = maf.rename(columns={"SAMPLE_ID": "Tumor_Sample_Barcode"})
-    return maf
-
-
 def mutation_file_path(raw_dir: Path, meta_records: list[dict[str, str]]) -> Path | None:
     rel = choose_data_file(meta_records, alteration_type="MUTATION_EXTENDED", datatype="MAF")
     if rel is None:
@@ -560,10 +548,9 @@ def main(argv: list[str] | None = None) -> int:
     if not studies:
         parser.error("provide --study STUDY_ID or --all")
 
-    qc_rows = []
     for study_id in studies:
         print(f"[clinical-driver-validation] processing {study_id}", flush=True)
-        qc_rows.append(process_study(study_id, args.root, force_download=args.force_download, cleanup_raw=not args.keep_raw))
+        process_study(study_id, args.root, force_download=args.force_download, cleanup_raw=not args.keep_raw)
     out_path = aggregate_phase1_qc(args.root)
     print(f"[clinical-driver-validation] wrote {out_path}", flush=True)
     return 0

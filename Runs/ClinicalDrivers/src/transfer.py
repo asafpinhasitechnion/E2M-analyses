@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import e2m
 import numpy as np
 import pandas as pd
 import yaml
@@ -27,12 +27,6 @@ from alterations import alteration_labels_for_primary_targets, build_alteration_
 from driver_genes import CANCER_DRIVER_GENES
 
 RUN_ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL_SRC = RUN_ROOT.parent / "External" / "src"
-if str(EXTERNAL_SRC) not in sys.path:
-    sys.path.insert(0, str(EXTERNAL_SRC))
-
-from data import load_tcga_training_data  # noqa: E402  (shared TCGA loader from Runs/External)
-
 
 
 CODING_VARIANT_CLASSIFICATIONS = {
@@ -227,21 +221,12 @@ def tcga_event_sample_id(barcode: str) -> str:
 
 def load_tcga_alteration_labels(config: dict[str, Any], sample_ids: pd.Index) -> pd.DataFrame:
     usecols = ["sample", "chr", "start", "end", "gene", "effect", "Amino_Acid_Change"]
+    # The per-cancer MC3 event files in Runs/TCGA/data/mutation_events ({cancer}_mc3.txt.gz) have the same columns and could
+    # replace this pan-cancer file; not yet checked that they give identical labels.
     events = pd.read_csv(run_path(config["data"]["tcga_mc3_events"]), sep="\t", usecols=usecols, low_memory=False)
     events["sample"] = events["sample"].map(tcga_event_sample_id)
     events = events[events["sample"].isin(set(sample_ids.astype(str)))]
     return build_alteration_matrix(events, sample_ids)
-
-
-def tcga_sample_cancers(config: dict[str, Any], cancers: tuple[str, ...], measure: str) -> pd.Series:
-    """Cancer type of each TCGA sample, from the per-cancer expression file headers."""
-    rows = {}
-    for cancer in cancers:
-        path = run_path(config["tcga"]["expression_dir"]) / f"TCGA-{cancer}.star_{measure}.tsv.gz"
-        for sample in pd.read_csv(path, sep="\t", nrows=0).columns.astype(str)[1:]:
-            if sample.startswith("TCGA-"):
-                rows.setdefault(sample, cancer)
-    return pd.Series(rows)
 
 
 def load_tcga_training(
@@ -250,27 +235,24 @@ def load_tcga_training(
     *,
     label_mode: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+    """TCGA training data from E2M: linear counts or TPM of protein-coding genes, every mutated gene as a label,
+    and the cancer type of each sample as its ComBat batch."""
     tcga_cfg = config["tcga"]
-    expression, mutations, _ = load_tcga_training_data(
-        expression_path=run_path(tcga_cfg["expression_dir"]),
-        gene_name_mapping_path=run_path(tcga_cfg["gene_name_mapping"]),
-        gene_annotation_path=run_path(tcga_cfg["gene_annotation"]),
-        mutation_path=run_path(tcga_cfg["mutation_dir"]),
-        mutation_file_template=tcga_cfg["mutation_file_template"],
-        cancer_types=list(plan.tcga_cancers),
-        expression_measure=plan.tcga_expression_measure,
-        min_mutations_per_gene=1,
-    )
-    expression = expression.fillna(0.0)
-    mutations = mutations.fillna(0).astype(np.int8)
-    if len(plan.tcga_cancers) > 1:
-        cancers = tcga_sample_cancers(config, plan.tcga_cancers, plan.tcga_expression_measure)
-        train_batches = "TCGA_" + cancers.reindex(expression.index).fillna("TCGA").astype(str)
-    else:
-        train_batches = pd.Series("TCGA_" + plan.tcga_cancers[0], index=expression.index)
-    if label_mode == "alteration":
-        mutations = load_tcga_alteration_labels(config, expression.index)
-    return expression, mutations, train_batches.astype(str)
+    overrides = {
+        "expression_dataset": f"star_{plan.tcga_expression_measure}",
+        "expression_transform": "raw",       # linear scale; log1p is applied later per the cohort's config
+        "normalization": "none",
+        "min_mutation_prevalence": 0,
+        "min_mutation_positives": 1,
+        "max_mutation_targets": 0,
+        "targets": None,
+    }
+    tcga = e2m.Dataset.from_tcga(list(plan.tcga_cancers), data_dir=run_path(tcga_cfg["data_dir"]),
+                                 config=run_path(tcga_cfg["config"]), data_overrides=overrides, with_tmb=False)
+    expression = tcga.expression.astype(float)
+    mutations = load_tcga_alteration_labels(config, expression.index) if label_mode == "alteration" else tcga.mutations
+    train_batches = "TCGA_" + tcga.cancer.astype(str)
+    return expression, mutations, train_batches
 
 
 def numeric_frame(df: pd.DataFrame) -> pd.DataFrame:

@@ -127,20 +127,6 @@ def sample_patient_id(sample_id: str) -> str:
     return str(sample_id).split("_")[0].split(".")[0]
 
 
-def expand_patient_table_to_expression_samples(
-    patient_table: pd.DataFrame,
-    expression_index: pd.Index,
-) -> pd.DataFrame:
-    """Expand a patient-indexed table to one row per expression sample."""
-    patients = pd.Series([sample_patient_id(sample) for sample in expression_index], index=expression_index)
-    keep = patients.isin(patient_table.index.astype(str))
-    expanded = patient_table.copy()
-    expanded.index = expanded.index.astype(str)
-    out = expanded.reindex(patients.loc[keep].to_numpy())
-    out.index = pd.Index(patients.loc[keep].index.astype(str), name="sample")
-    return out
-
-
 def entrez_to_symbols(
     entrez_ids,
     *,
@@ -549,8 +535,6 @@ def load_hugo_data(
     profiled = pd.Index(maf["Tumor_Sample_Barcode"].dropna().unique())
     if coding_only:
         maf = maf[maf["Variant_Classification"].isin(HUGO_CODING_VARIANT_CLASSIFICATIONS)].copy()
-    gene_as_dt = pd.to_datetime(maf["Hugo_Symbol"], errors="coerce")
-    maf = maf.loc[gene_as_dt.isna()].dropna(subset=["Tumor_Sample_Barcode", "Hugo_Symbol"])
     mutation_binary = (
         maf[["Tumor_Sample_Barcode", "Hugo_Symbol"]]
         .drop_duplicates()
@@ -597,12 +581,7 @@ def load_hugo_data(
     clinical["Gender"] = clinical_raw["Gender"].astype("string").to_numpy()
     clinical["Purity"] = pd.to_numeric(clinical_raw["Purity"], errors="coerce").to_numpy()
     clinical["Ploidy"] = pd.to_numeric(clinical_raw["Ploidy"], errors="coerce").to_numpy()
-    clinical["Tumor_type"] = "Metastatic"
     clinical["Stage"] = clinical_raw["Disease Status"].astype("string").to_numpy()
-    clinical["Study"] = "Melanoma_Hugo"
-    clinical["Cancer"] = "Melanoma"
-    clinical["Sequencing"] = "WES"
-    clinical["RNA"] = clinical_raw["RNAseq"].replace({1: True, 0: False}).to_numpy()
     clinical["TMB"] = pd.to_numeric(clinical_raw["TotalNonSyn"], errors="coerce").to_numpy()  # nonsynonymous mutations
 
     # Pt27 has two RNA samples (GEO): Pt27A, the 1st biopsy (R upper arm, the location given in S1A), and Pt27B,
@@ -672,8 +651,6 @@ def load_liu_data(
     profiled = pd.Index(maf["Tumor_Sample_Barcode"].dropna().unique())
     if coding_only:
         maf = maf.loc[maf["Variant_Classification"].isin(HUGO_CODING_VARIANT_CLASSIFICATIONS)].copy()  # Oncotator classes
-    maf = maf.loc[~maf["Hugo_Symbol"].astype(str).str.match(r"^\d{4}-\d{1,2}-\d{1,2}$")]
-    maf = maf.dropna(subset=["Tumor_Sample_Barcode", "Hugo_Symbol"])
     mutation_binary = (
         maf[["Tumor_Sample_Barcode", "Hugo_Symbol"]]
         .drop_duplicates()
@@ -715,11 +692,6 @@ def load_liu_data(
     clinical["Ploidy"] = pd.to_numeric(clinical_raw["ploidy"], errors="coerce").to_numpy()
     clinical["Biopsy_site"] = clinical_raw["biopsy site"].astype("string").to_numpy()
     clinical["Biopsy_context"] = clinical_raw["biopsyContext (1=Pre-Ipi; 2=On-Ipi; 3=Pre-PD1; 4=On-PD1)"].to_numpy()
-    clinical["Study"] = "Melanoma_Liu"
-    clinical["Cancer"] = "Melanoma"
-    clinical["Tumor_type"] = "Metastatic"
-    clinical["Sequencing"] = "WES"
-    clinical["RNA"] = clinical.index.isin(expression.index)
 
     common = expression.index.intersection(clinical.index)
     expression = expression.loc[common]
@@ -857,20 +829,12 @@ def load_van_allen_data(
     if mask_x.any():
         clinical.loc[mask_x, "Response"] = clinical_raw.loc[mask_x, "group"].replace({"response": "R", "nonresponse": "NR"}).values
     clinical["TMB"] = pd.to_numeric(clinical_raw["nonsynonymous"], errors="coerce")
-    clinical["Study"] = "Melanoma_Van_Allen"
     clinical["Stage"] = clinical_raw["stage"].astype("string") + ";" + clinical_raw["M"].astype("string")
     clinical["Treatment"] = "Ipilimumab"
-    clinical["Sequencing"] = "WES"
-    clinical["Cancer"] = "Melanoma"
-    clinical["Tumor_type"] = "Metastatic"
     clinical = clinical.drop_duplicates("sample").set_index("sample")
     clinical.index.name = "sample"
-    clinical["RNA"] = clinical.index.isin(expression.index)
 
-    try:
-        mutation_raw = pd.read_excel(data_dir / mutations_file, sheet_name=mutations_sheet)
-    except Exception:
-        mutation_raw = pd.read_excel(data_dir / mutations_file, sheet_name=0)
+    mutation_raw = pd.read_excel(data_dir / mutations_file, sheet_name=mutations_sheet)
     maf = pd.DataFrame(
         {
             "Tumor_Sample_Barcode": "MEL-IPI_" + mutation_raw["patient"].astype(str),
@@ -881,7 +845,6 @@ def load_van_allen_data(
     profiled = pd.Index(maf["Tumor_Sample_Barcode"].dropna().unique())
     if coding_only:
         maf = maf[maf["Variant_Classification"].isin(HUGO_CODING_VARIANT_CLASSIFICATIONS)].copy()
-    maf = maf.dropna(subset=["Tumor_Sample_Barcode", "Hugo_Symbol"])
     mutation_binary = (
         maf[["Tumor_Sample_Barcode", "Hugo_Symbol"]]
         .drop_duplicates()

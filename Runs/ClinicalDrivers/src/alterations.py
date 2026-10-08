@@ -34,7 +34,6 @@ ALTERATION_DEFINITIONS: tuple[AlterationDefinition, ...] = (
 )
 
 ALTERATION_LABELS: tuple[str, ...] = tuple(defn.label for defn in ALTERATION_DEFINITIONS)
-ALTERATION_GENES: tuple[str, ...] = tuple(sorted({gene for defn in ALTERATION_DEFINITIONS for gene in defn.genes}))
 
 
 def alteration_definition_table() -> pd.DataFrame:
