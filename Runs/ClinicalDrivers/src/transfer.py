@@ -301,10 +301,7 @@ def normalize_combat(
     log1p_train: bool,
     log1p_external: bool,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
-    try:
-        from pycombat import Combat
-    except ImportError as exc:
-        raise ImportError("pycombat is required for ComBat normalization. Install pycombat, or set the plan normalization to 'rank'.") from exc
+    from inmoose.pycombat import pycombat_norm
 
     train, external = shared_prepared_matrices(
         train_expression,
@@ -327,8 +324,9 @@ def normalize_combat(
             batch_var_mask &= combined.loc[idx].var(axis=0, ddof=0) > 0
     combined = combined.loc[:, batch_var_mask]
 
-    corrected = Combat().fit_transform(Y=combined.values, b=batch.values)
-    corrected = pd.DataFrame(corrected, index=combined.index, columns=combined.columns)
+    # inmoose takes genes x samples, as in Runs/External
+    corrected = pycombat_norm(counts=combined.T.to_numpy(dtype=np.float64), batch=batch.to_numpy())
+    corrected = pd.DataFrame(np.asarray(corrected).T, index=combined.index, columns=combined.columns)
     return corrected.loc[train.index], corrected.loc[external.index], batch
 
 

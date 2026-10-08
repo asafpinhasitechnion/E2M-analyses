@@ -16,7 +16,7 @@ Python 3.10, PyTorch with CUDA, E2M, and the packages used by the runs and figur
 ```
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126
 pip install "e2m[interpretation] @ git+https://github.com/yizhak-lab-ccg/E2M.git@b201b22"
-pip install inmoose==0.8.1 umap-learn==0.5.12 scanpy==1.11.5 openpyxl==3.1.5 mygene pycombat \
+pip install inmoose==0.8.1 umap-learn==0.5.12 scanpy==1.11.5 openpyxl==3.1.5 mygene \
     matplotlib==3.10.9 seaborn==0.13.2 adjustText==1.4.0 lifelines==0.30.0 pingouin==0.6.1 statsmodels==0.14.6 \
     igraph==1.0.0 leidenalg==0.12.0 nbclient==0.11.0 nbformat==5.11.1 ipykernel==7.3.0
 ```

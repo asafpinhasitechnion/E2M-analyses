@@ -29,7 +29,7 @@ TCGA inputs. Paths are relative to `Runs/ClinicalDrivers`; the first three are s
 
 Missing files of the first three kinds are downloaded into `Runs/TCGA/data/` by E2M, so this run can be started before Runs/TCGA.
 
-Main packages: pandas, numpy, pyyaml, scikit-learn (metrics), xgboost, pycombat (`from pycombat import Combat`). The prepare scripts download through Python's `urllib` and need network access to cbioportal.org, github.com and ftp.ncbi.nlm.nih.gov.
+Main packages: pandas, numpy, pyyaml, scikit-learn (metrics), xgboost, inmoose (`inmoose.pycombat.pycombat_norm`, as in Runs/External). The prepare scripts download through Python's `urllib` and need network access to cbioportal.org, github.com and ftp.ncbi.nlm.nih.gov.
 
 ## Data
 
@@ -102,7 +102,7 @@ A cohort is tested on an alteration label only if one of the label's genes is in
 - External filters: samples must have both expression and mutation labels. For POG570, samples are kept by the clinical column and values in `filter`. For GSE39582 (`tumor_only: true`), only samples with `is_tumor` = 1 are kept.
 - log1p (natural log, after clipping negative values to 0) is applied to each side when the config says so. TCGA: always. External: true for paad_qcmg_uq_2016, luad_cas_2020, difg_glass and the POG570 splits; false for PRINCE, luad_oncosg_2020, METABRIC and the GEO series.
 - Genes: duplicate symbols are averaged and only genes shared by TCGA and the cohort are kept. A gene is dropped if it has any non-finite value, has zero variance over all samples, or has zero variance inside any batch of 2 or more samples.
-- ComBat (pycombat `Combat().fit_transform` with default settings, no covariates) is fitted on TCGA and the cohort together. Batches are the TCGA cancer type (`TCGA_<CANCER>`, so LGG/GBM and COAD/READ are separate batches) and the external cohort key.
+- ComBat (inmoose `pycombat_norm` with default settings, no covariates, no reference batch) is fitted on TCGA and the cohort together. Batches are the TCGA cancer type (`TCGA_<CANCER>`, so LGG/GBM and COAD/READ are separate batches) and the external cohort key.
 
 ### Targets, model and evaluation
 
