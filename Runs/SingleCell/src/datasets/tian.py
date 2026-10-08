@@ -2,20 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy.sparse import issparse
+from scipy.sparse import csr_matrix
 from sklearn.linear_model import LogisticRegression
 
-from models.multitask import MultiTaskConfig, _fit_one_fold, compute_binary_metrics
-from models.presets import MODEL_PRESETS
-
-
-def _to_dense_array(x):
-    return x.toarray() if issparse(x) else np.asarray(x)
+from models.multitask import compute_binary_metrics
 
 
 def _eligible_two_guide_targets(
@@ -97,75 +92,6 @@ def _build_direction_masks(
     return train_mask, test_mask
 
 
-def _build_multitask_labels(
-    gene_values: np.ndarray,
-    targets: List[str],
-) -> np.ndarray:
-    y = np.zeros((gene_values.shape[0], len(targets)), dtype=np.float32)
-    t2i = {g: i for i, g in enumerate(targets)}
-    for i, g in enumerate(gene_values):
-        j = t2i.get(str(g))
-        if j is not None:
-            y[i, j] = 1.0
-    return y
-
-
-def _run_multitask_direction(
-    adata,
-    eligible: Dict[str, Tuple[str, str]],
-    train_mask: np.ndarray,
-    test_mask: np.ndarray,
-    gene_col: str,
-    model_params: dict,
-    seed: int,
-    direction_name: str,
-    verbose: bool,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    targets = sorted(eligible.keys())
-    x = _to_dense_array(adata.X).astype(np.float32)
-    gvals = adata.obs[gene_col].astype(str).to_numpy()
-    y = _build_multitask_labels(gvals, targets)
-
-    x_tr, y_tr = x[train_mask], y[train_mask]
-    x_te, y_te = x[test_mask], y[test_mask]
-    te_sample_ids = adata.obs_names.to_numpy()[test_mask]
-
-    cfg = MultiTaskConfig(**{k: v for k, v in model_params.items() if hasattr(MultiTaskConfig, k)})
-    _, probs, _emb, _hist = _fit_one_fold(
-        X_train=x_tr,
-        Y_train=y_tr,
-        X_valid=x_te,
-        Y_valid=y_te,
-        cfg=cfg,
-        random_state=seed,
-        verbose=verbose,
-        fold_label=direction_name,
-    )
-
-    rows = []
-    for j, pert in enumerate(targets):
-        m = compute_binary_metrics(y_true=y_te[:, j], y_prob=probs[:, j], threshold=cfg.decision_threshold)
-        rows.append({"perturbation": pert, "direction": direction_name, "mode": "multitask", **m})
-    metrics_df = pd.DataFrame(rows)
-
-    pred_rows = []
-    for j, pert in enumerate(targets):
-        pred_rows.append(
-            pd.DataFrame(
-                {
-                    "sample_id": te_sample_ids,
-                    "direction": direction_name,
-                    "mode": "multitask",
-                    "perturbation": pert,
-                    "y_true": y_te[:, j].astype(np.float32),
-                    "y_prob": probs[:, j].astype(np.float32),
-                }
-            )
-        )
-    pred_df = pd.concat(pred_rows, ignore_index=True)
-    return metrics_df, pred_df
-
-
 def _run_per_gene_direction(
     adata,
     eligible: Dict[str, Tuple[str, str]],
@@ -176,7 +102,7 @@ def _run_per_gene_direction(
     seed: int,
     direction_name: str,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    x = _to_dense_array(adata.X).astype(np.float32)
+    x = csr_matrix(adata.X, dtype=np.float32)
     gvals = adata.obs[gene_col].astype(str).to_numpy()
     sample_ids = adata.obs_names.to_numpy()
     ctl = set(control_labels)
@@ -255,12 +181,6 @@ def run_one_file(args, input_file: str) -> None:
     if not eligible:
         raise ValueError(f"{input_file}: no perturbations with exactly 2 guides and >= {args.min_cells_per_guide} cells/guide")
 
-    model_params = dict(MODEL_PRESETS[args.preset])
-    if args.model_json is not None:
-        raw = json.loads(args.model_json.read_text(encoding="utf-8"))
-        for k, v in raw.items():
-            model_params[k] = tuple(v) if (k == "hidden_dims" and isinstance(v, list)) else v
-
     rows = []
     pred_rows = []
     for direction in (1, 2):
@@ -275,29 +195,16 @@ def run_one_file(args, input_file: str) -> None:
             seed=args.seed + direction,
         )
 
-        if args.mode == "multitask":
-            df, pred_df = _run_multitask_direction(
-                adata=adata,
-                eligible=eligible,
-                train_mask=train_mask,
-                test_mask=test_mask,
-                gene_col=args.gene_col,
-                model_params=model_params,
-                seed=args.seed + direction,
-                direction_name=dname,
-                verbose=not args.quiet,
-            )
-        else:
-            df, pred_df = _run_per_gene_direction(
-                adata=adata,
-                eligible=eligible,
-                train_mask=train_mask,
-                test_mask=test_mask,
-                gene_col=args.gene_col,
-                control_labels=control_labels,
-                seed=args.seed + direction,
-                direction_name=dname,
-            )
+        df, pred_df = _run_per_gene_direction(
+            adata=adata,
+            eligible=eligible,
+            train_mask=train_mask,
+            test_mask=test_mask,
+            gene_col=args.gene_col,
+            control_labels=control_labels,
+            seed=args.seed + direction,
+            direction_name=dname,
+        )
         rows.append(df)
         pred_rows.append(pred_df)
 

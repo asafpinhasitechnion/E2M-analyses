@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 
 # Figure 5 perturbation runs use one wide multitask preset. Inputs are already
@@ -35,7 +35,4 @@ SIMPLE_WIDE_RUN: Dict[str, Any] = {
 
 MODEL_PRESETS: Dict[str, Dict[str, Any]] = {
     "simple_wide_run": dict(SIMPLE_WIDE_RUN),
-    "simple_wide": dict(SIMPLE_WIDE_RUN),
 }
-
-PRESET_NAMES: Tuple[str, ...] = tuple(sorted(MODEL_PRESETS.keys()))

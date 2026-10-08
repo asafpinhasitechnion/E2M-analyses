@@ -22,12 +22,10 @@ MULTITASK_PRESET: str = _cfg["multitask_preset"]
 PREPROCESS_TARGET_SUM: float = float(_cfg["preprocess_target_sum"])
 
 DATASET_FILES: dict[str, str] = dict(_cfg["dataset_files"])
-PERTURBATION_DATASETS = tuple(DATASET_FILES)
 CCLE_ADATA = CCLE_DIR / _cfg["ccle_files"]["adata"]
 CCLE_MUTATIONS_CSV = CCLE_DIR / _cfg["ccle_files"]["mutations"]
 
 ZENODO_RECORD_ID = str(_cfg["zenodo_record_id"])
-ZENODO_RECORD_URL = f"https://zenodo.org/records/{ZENODO_RECORD_ID}"
 
 
 def _xgb_has_cuda() -> bool:

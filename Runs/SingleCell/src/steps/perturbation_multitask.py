@@ -19,6 +19,7 @@ from models.presets import MODEL_PRESETS
 #   gene_col                  : None -> auto-detect from GENE_COL_CANDIDATES
 #   control_labels            : labels treated as negative controls (default = generic scPerturb)
 #   perturbation_to_genes     : optional construct -> [genes] map (multi-label mode; Adamson)
+#   targets                   : optional perturbations to keep, with the controls
 # First column present in obs is used; the scPerturb files used here carry 'perturbation'.
 GENE_COL_CANDIDATES = ("gene", "perturbation", "target_gene", "perturbed_gene")
 DEFAULT_CONTROL_LABELS = ("non-targeting", "control")
@@ -43,7 +44,9 @@ RUNS = [
     {"key": "replogle_k562", "min_cells_per_gene": 300},
     {"key": "replogle_rpe1", "min_cells_per_gene": 300},
     {"key": "frangieh",      "min_cells_per_gene": 800, "condition_col": "perturbation_2"},
-    {"key": "zhao",          "min_cells_per_gene": 300, "cv_group_col": "sample"},
+    # Zhao: the other four drugs were each given in one sample only, so CV grouped by sample cannot train and test them.
+    {"key": "zhao",          "min_cells_per_gene": 300, "cv_group_col": "sample",
+     "targets": ("etoposide", "panobinostat")},
 ]
 
 
@@ -96,6 +99,8 @@ def _run_one(run: dict, preset: str) -> None:
     sc.pp.log1p(adata)
 
     gene_col = _resolve_gene_col(adata, file_name, gene_col_requested)
+    if run.get("targets") is not None:
+        adata = adata[adata.obs[gene_col].astype(str).isin([*run["targets"], *control_labels])].copy()
 
     n_ctl_in_data = int(adata.obs[gene_col].astype(str).isin(control_labels).sum())
     print(

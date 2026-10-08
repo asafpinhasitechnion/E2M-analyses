@@ -14,8 +14,8 @@ import config
 #              list of files to copy from that run folder).
 BUNDLE: List[tuple] = [
     (
+        "Adamson_10X001",
         "admason_AdamsonWeissman2016_GSM2406675_10X001_mc300_simple_wide_run",
-        "admason_AdamsonWeissman2016_GSM2406675_10X001_mc300_simple_wide_run",
         [
             "metric_summary_per_gene_folds.csv",
             "oof_cell_folds.csv",
@@ -24,8 +24,8 @@ BUNDLE: List[tuple] = [
         ],
     ),
     (
+        "Adamson_10X005",
         "admason_AdamsonWeissman2016_GSM2406677_10X005_mc300_simple_wide_run",
-        "admason_AdamsonWeissman2016_GSM2406677_10X005_mc300_simple_wide_run",
         [
             "metric_summary_per_gene_folds.csv",
             "oof_cell_folds.csv",
@@ -34,7 +34,7 @@ BUNDLE: List[tuple] = [
         ],
     ),
     (
-        "admason_AdamsonWeissman2016_GSM2406681_10X010_mc300_simple_wide_run",
+        "Adamson_10X010",
         "admason_AdamsonWeissman2016_GSM2406681_10X010_mc300_simple_wide_run",
         [
             "metric_summary_per_gene_folds.csv",
@@ -44,22 +44,22 @@ BUNDLE: List[tuple] = [
         ],
     ),
     (
+        "McFarland",
         "McFarlandTsherniak2020_mc300_simple_wide_run_cvgrp_cell_line",
-        "McFarlandTsherniak2020_mc300_simple_wide_run_cvgrp_cell_line",
         ["metric_summary_per_gene_folds.csv"],
     ),
     (
+        "Replogle_K562",
         "ReplogleWeissman2022_K562_essential_mc300_simple_wide_run",
-        "ReplogleWeissman2022_K562_essential_mc300_simple_wide_run",
         ["metric_summary_per_gene_folds.csv"],
     ),
     (
-        "ReplogleWeissman2022_rpe1_mc300_simple_wide_run",
+        "Replogle_RPE1",
         "ReplogleWeissman2022_rpe1_mc300_simple_wide_run",
         ["metric_summary_per_gene_folds.csv"],
     ),
     (
-        "FrangiehIzar2021_RNA_mc800_simple_wide_run",
+        "Frangieh",
         "FrangiehIzar2021_RNA_mc800_simple_wide_run",
         [
             "metric_summary_per_gene_folds.csv",
@@ -68,7 +68,7 @@ BUNDLE: List[tuple] = [
         ],
     ),
     (
-        "FrangiehIzar2021_RNA_per_gene_mc800_baseline",
+        "Frangieh_per_gene",
         "FrangiehIzar2021_RNA_per_gene_mc800_baseline",
         [
             "metric_summary_per_gene.csv",
@@ -78,12 +78,12 @@ BUNDLE: List[tuple] = [
         ],
     ),
     (
-        "TianKampmann2021_CRISPRa_two_guide_per-gene_mcg100_simple_wide_run",
+        "Tian",
         "TianKampmann2021_CRISPRa_two_guide_per-gene_mcg100_simple_wide_run",
         ["directional_metrics_per_gene.csv"],
     ),
     (
-        "ZhaoSims2021_mc300_simple_wide_run_cvgrp_sample",
+        "Zhao",
         "ZhaoSims2021_mc300_simple_wide_run_cvgrp_sample",
         [
             "oof_cell_folds.csv",
@@ -101,14 +101,8 @@ BUNDLE: List[tuple] = [
             "cell_level_xgboost.csv",
             "model_level_xgboost.csv",
             "meta_xgboost.csv",
-            "multitask_fold_metrics_50.csv",
-            "multitask_summary_50.csv",
-            "multitask_fold_metrics_100.csv",
-            "multitask_summary_100.csv",
             "multitask_fold_metrics_150.csv",
             "multitask_summary_150.csv",
-            "multitask_fold_metrics_200.csv",
-            "multitask_summary_200.csv",
         ],
     ),
 ]

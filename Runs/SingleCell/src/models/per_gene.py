@@ -22,16 +22,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 
-try:
-    import lightgbm as lgb
-except ImportError:  # LightGBM is optional; the maintained pipeline uses XGBoost.
-    lgb = None
-
-
-def _to_dense_array(x):
-    return x.toarray() if issparse(x) else np.asarray(x)
-
-
 def _to_model_matrix(x):
     """Keep sparse expression sparse for tree models."""
     return x.copy() if issparse(x) else np.asarray(x)
@@ -109,21 +99,12 @@ def get_model(
     model_type = model_type.lower()
     model_params = dict(model_params or {})
 
-    if model_type == "lgbm":
-        if lgb is None:
-            raise ImportError("Install lightgbm to use model_type='lgbm'.")
-        params = {"random_state": random_state}
-        if "is_unbalance" not in model_params and "scale_pos_weight" not in model_params:
-            params["is_unbalance"] = True
-        params.update(model_params)
-        return lgb.LGBMClassifier(**params)
-
     if model_type == "xgboost":
         params = {"random_state": random_state}
         params.update(model_params)
         return xgb.XGBClassifier(**params)
 
-    raise ValueError("model_type must be one of {'lgbm', 'xgboost'}")
+    raise ValueError("model_type must be 'xgboost'")
 
 
 def _safe_metric(metric_fn, *args, **kwargs) -> float:
@@ -215,21 +196,7 @@ def per_gene_cv(
                 )
                 clf.fit(X[tr_idx], y[tr_idx])
             else:
-                # Some sparse/imbalanced folds may fail with LightGBM GPU split assertions.
-                # Retry fold on CPU with robust histogram settings instead of aborting the run.
-                is_lgbm_error = lgb is not None and isinstance(exc, lgb.basic.LightGBMError)
-                if model_type.lower() != "lgbm" or not is_lgbm_error:
-                    raise
-                retry_params = dict(fit_params)
-                retry_params["device_type"] = "cpu"
-                retry_params.setdefault("force_col_wise", True)
-                retry_params.setdefault("num_threads", -1)
-                clf = get_model(
-                    model_type=model_type,
-                    random_state=random_state,
-                    model_params=retry_params,
-                )
-                clf.fit(X[tr_idx], y[tr_idx])
+                raise
 
         y_true = y[va_idx]
         y_prob = clf.predict_proba(X[va_idx])[:, 1]

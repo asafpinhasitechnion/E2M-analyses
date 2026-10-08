@@ -6,7 +6,7 @@ import config
 from datasets.ccle import load_ccle_adata, run_log_tmb_cv, run_multitask_mutation_cv
 
 
-TOP_N_VALUES = (50, 100, 150, 200)
+TOP_N_VALUES = (150,)
 REGRESSOR = "xgboost"
 
 
@@ -19,7 +19,7 @@ def main() -> None:
     out_dir = config.OUTPUTS_ROOT / "ccle_tmb_and_multitask"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[ccle] loading expression + mapping mutations...")
+    print("[ccle] loading expression + mapping mutations...")
     adata = load_ccle_adata(
         adata_path=config.CCLE_ADATA,
         mutations_csv=config.CCLE_MUTATIONS_CSV,
@@ -28,7 +28,7 @@ def main() -> None:
     )
     print(f"[ccle] cells={adata.n_obs} features={adata.n_vars}")
 
-    print(f"[ccle] log-TMB regression CV...")
+    print("[ccle] log-TMB regression CV...")
     run_log_tmb_cv(
         adata=adata,
         out_dir=out_dir,
@@ -36,7 +36,7 @@ def main() -> None:
         n_splits=config.CV_FOLDS,
         seed=config.RANDOM_STATE,
         regressor=REGRESSOR,
-        model_params=config.XGBOOST_PARAMS if REGRESSOR == "xgboost" else None,
+        model_params=config.XGBOOST_PARAMS,
     )
 
     for top_n in TOP_N_VALUES:

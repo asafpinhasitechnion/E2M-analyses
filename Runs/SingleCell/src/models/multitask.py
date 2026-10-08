@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from scipy.sparse import issparse
+from scipy.sparse import csr_matrix, issparse
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -27,7 +27,6 @@ from sklearn.model_selection import (
     StratifiedGroupKFold,
     train_test_split,
 )
-from torch.utils.data import DataLoader, TensorDataset
 
 
 def infer_cell_line_name(input_filename: str) -> str:
@@ -69,6 +68,14 @@ def compute_binary_metrics(
 
 def _to_dense_array(x):
     return x.toarray() if issparse(x) else np.asarray(x)
+
+
+def _batches(X, Y, batch_size: int, shuffle: bool = False):
+    """Mini-batches as tensors. X stays sparse; only one batch at a time is made dense."""
+    order = np.random.permutation(X.shape[0]) if shuffle else np.arange(X.shape[0])
+    for start in range(0, len(order), batch_size):
+        rows = order[start:start + batch_size]
+        yield torch.from_numpy(_to_dense_array(X[rows])), torch.from_numpy(Y[rows])
 
 
 def get_eligible_perturbations(
@@ -158,7 +165,7 @@ def build_multitask_dataset(
                 flush=True,
             )
 
-    X = _to_dense_array(adata_sub.X).astype(np.float32)
+    X = csr_matrix(adata_sub.X, dtype=np.float32)
     sample_ids = adata_sub.obs_names.to_numpy()
 
     Y = np.zeros((adata_sub.n_obs, len(genes)), dtype=np.float32)
@@ -287,7 +294,7 @@ def build_multitask_dataset_multigene(
                 flush=True,
             )
 
-    X = _to_dense_array(adata_sub.X).astype(np.float32)
+    X = csr_matrix(adata_sub.X, dtype=np.float32)
     sample_ids = adata_sub.obs_names.to_numpy()
 
     Y = np.zeros((adata_sub.n_obs, len(genes)), dtype=np.float32)
@@ -514,17 +521,6 @@ def _fit_one_fold(
         cfg=cfg,
     )
 
-    train_loader = DataLoader(
-        TensorDataset(torch.from_numpy(x_tr), torch.from_numpy(y_tr)),
-        batch_size=cfg.batch_size,
-        shuffle=True,
-    )
-    val_loader = DataLoader(
-        TensorDataset(torch.from_numpy(x_val), torch.from_numpy(y_val)),
-        batch_size=cfg.batch_size,
-        shuffle=False,
-    )
-
     best_state = None
     if cfg.early_stopping_metric == "val_loss":
         best_score = float("inf")
@@ -538,7 +534,7 @@ def _fit_one_fold(
         model.train()
         tr_loss_sum = 0.0
         tr_count = 0
-        for bx, by in train_loader:
+        for bx, by in _batches(x_tr, y_tr, cfg.batch_size, shuffle=True):
             bx = bx.to(device)
             by = by.to(device)
             optimizer.zero_grad()
@@ -558,7 +554,7 @@ def _fit_one_fold(
         val_prob_chunks = []
         val_true_chunks = []
         with torch.no_grad():
-            for bx, by in val_loader:
+            for bx, by in _batches(x_val, y_val, cfg.batch_size):
                 bx = bx.to(device)
                 by = by.to(device)
                 logits = model(bx)
@@ -629,12 +625,6 @@ def _fit_one_fold(
             flush=True,
         )
 
-    eval_loader = DataLoader(
-        TensorDataset(torch.from_numpy(X_valid), torch.from_numpy(Y_valid)),
-        batch_size=cfg.batch_size,
-        shuffle=False,
-    )
-
     if verbose:
         print(f"[multitask] {fold_label} scoring OOF split ({X_valid.shape[0]} cells)…", flush=True)
 
@@ -642,7 +632,7 @@ def _fit_one_fold(
     emb_list = []
     with torch.no_grad():
         model.eval()
-        for bx, _ in eval_loader:
+        for bx, _ in _batches(X_valid, Y_valid, cfg.batch_size):
             bx = bx.to(device)
             logits = model(bx)
             probs = torch.sigmoid(logits).cpu().numpy()

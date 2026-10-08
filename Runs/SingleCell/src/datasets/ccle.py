@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy.sparse import issparse
+from scipy.sparse import csr_matrix
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import (
     average_precision_score,
@@ -19,6 +19,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import KFold
 
+import config
 from models.multitask import MultiTaskConfig, _fit_one_fold
 from models.presets import MODEL_PRESETS
 
@@ -26,6 +27,29 @@ from models.presets import MODEL_PRESETS
 # --------------------------------------------------------------------------- #
 # Data helpers
 # --------------------------------------------------------------------------- #
+# Coding mutations, as for TCGA (missense, nonsense, nonstop, frameshift, in-frame, start codon, splice site).
+# DepMap's VariantInfo uses MAF-like names up to 23Q2 (which also list SILENT mutations) and
+# sequence-ontology terms joined by "&" from 23Q4 on.
+CODING_VARIANTS = {
+    "MISSENSE", "NONSENSE", "NONSTOP", "FRAME_SHIFT_DEL", "FRAME_SHIFT_INS", "IN_FRAME_DEL", "IN_FRAME_INS",
+    "START_CODON_SNP", "START_CODON_DEL", "START_CODON_INS", "SPLICE_SITE",
+    "missense_variant", "stop_gained", "stop_lost", "start_lost", "frameshift_variant", "inframe_insertion",
+    "inframe_deletion", "protein_altering_variant", "splice_acceptor_variant", "splice_donor_variant",
+}
+
+
+def load_coding_mutations(mutations_csv: Path) -> pd.DataFrame:
+    """DepMap mutation rows in a coding class, with ModelID and HugoSymbol."""
+    mut_df = pd.read_csv(mutations_csv, low_memory=False)
+    if "ModelID" not in mut_df.columns and "Model_ID" in mut_df.columns:
+        mut_df = mut_df.rename(columns={"Model_ID": "ModelID"})
+    coding = mut_df["VariantInfo"].astype(str).str.split("&").apply(lambda terms: any(t in CODING_VARIANTS for t in terms))
+    valid = mut_df[coding].dropna(subset=["HugoSymbol", "ModelID"]).copy()
+    valid["ModelID"] = valid["ModelID"].astype(str)
+    valid["HugoSymbol"] = valid["HugoSymbol"].astype(str)
+    return valid
+
+
 def load_ccle_adata(
     adata_path: Path,
     mutations_csv: Path,
@@ -37,15 +61,10 @@ def load_ccle_adata(
 
     if preprocess:
         sc.pp.filter_genes(adata, min_cells=3)
-        sc.pp.normalize_total(adata, target_sum=1e5)
+        sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
         sc.pp.log1p(adata)
 
-    mut_df = pd.read_csv(mutations_csv, low_memory=False)
-    if "ModelID" not in mut_df.columns and "Model_ID" in mut_df.columns:
-        mut_df = mut_df.rename(columns={"Model_ID": "ModelID"})
-    valid = mut_df[~mut_df["ProteinChange"].isna()].copy()
-    valid["ModelID"] = valid["ModelID"].astype(str)
-    valid["HugoSymbol"] = valid["HugoSymbol"].astype(str)
+    valid = load_coding_mutations(mutations_csv)
 
     model_tmb = dict(valid.groupby("ModelID").size())
     model_gene_n = dict(valid[["ModelID", "HugoSymbol"]].drop_duplicates().groupby("ModelID").size())
@@ -67,12 +86,7 @@ def select_top_mutated_genes(
     min_models: int = 20,
 ) -> List[str]:
     """Return the genes with the most distinct mutated models (>= min_models)."""
-    mut_df = pd.read_csv(mutations_csv, low_memory=False)
-    if "ModelID" not in mut_df.columns and "Model_ID" in mut_df.columns:
-        mut_df = mut_df.rename(columns={"Model_ID": "ModelID"})
-    valid = mut_df.dropna(subset=["ProteinChange", "HugoSymbol", "ModelID"]).copy()
-    valid["ModelID"] = valid["ModelID"].astype(str)
-    valid["HugoSymbol"] = valid["HugoSymbol"].astype(str)
+    valid = load_coding_mutations(mutations_csv)
     counts = (
         valid[["ModelID", "HugoSymbol"]]
         .drop_duplicates()
@@ -89,9 +103,6 @@ def select_top_mutated_genes(
 # --------------------------------------------------------------------------- #
 def _make_regressor(kind: str, model_params: Optional[dict] = None):
     model_params = dict(model_params or {})
-    if kind == "lightgbm":
-        from lightgbm import LGBMRegressor
-        return LGBMRegressor(**model_params)
     if kind == "xgboost":
         from xgboost import XGBRegressor
         return XGBRegressor(**model_params)
@@ -111,7 +122,7 @@ def run_log_tmb_cv(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    X = adata.X.toarray() if issparse(adata.X) else np.asarray(adata.X)
+    X = csr_matrix(adata.X, dtype=np.float32)
     cell_models = adata.obs[model_column].astype(str).to_numpy()
     tmb_per_model = (
         adata.obs[[model_column, "log_model_TMB"]]
@@ -215,13 +226,7 @@ def run_multitask_mutation_cv(
     if not top_genes:
         raise RuntimeError(f"No genes selected for top_n={top_n}, min_models_per_gene={min_models_per_gene}")
 
-    mut_df = pd.read_csv(mutations_csv, low_memory=False)
-    if "ModelID" not in mut_df.columns and "Model_ID" in mut_df.columns:
-        mut_df = mut_df.rename(columns={"Model_ID": "ModelID"})
-    valid = mut_df.dropna(subset=["ProteinChange", "HugoSymbol", "ModelID"]).copy()
-    valid["ModelID"] = valid["ModelID"].astype(str)
-    valid["HugoSymbol"] = valid["HugoSymbol"].astype(str)
-    pairs = valid[["ModelID", "HugoSymbol"]].drop_duplicates()
+    pairs = load_coding_mutations(mutations_csv)[["ModelID", "HugoSymbol"]].drop_duplicates()
 
     cell_models = adata.obs[model_column].astype(str).to_numpy()
     Y = np.zeros((adata.n_obs, len(top_genes)), dtype=np.float32)
@@ -229,9 +234,7 @@ def run_multitask_mutation_cv(
         mut_models = pairs.loc[pairs["HugoSymbol"] == g, "ModelID"].astype(str).to_numpy()
         Y[:, j] = np.isin(cell_models, mut_models).astype(np.float32)
 
-    X = adata.X
-    def _dense(x):
-        return np.asarray(x.toarray() if issparse(x) else x, dtype=np.float32)
+    X = csr_matrix(adata.X, dtype=np.float32)
 
     params = dict(MODEL_PRESETS[preset_name])
     params.pop("non_target_subsample", None)
@@ -263,9 +266,9 @@ def run_multitask_mutation_cv(
             f"{int(tr_mask.sum())} cells -> predicting on {int(te_mask.sum())} cells..."
         )
         _, probs, _emb, _hist = _fit_one_fold(
-            X_train=_dense(X[tr_mask]),
+            X_train=X[tr_mask],
             Y_train=Y[tr_mask],
-            X_valid=_dense(X[te_mask]),
+            X_valid=X[te_mask],
             Y_valid=Y[te_mask],
             cfg=cfg,
             random_state=seed + fold,
