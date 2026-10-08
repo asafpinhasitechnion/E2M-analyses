@@ -1,223 +1,168 @@
-"""Train on TCGA, transfer to each external cohort, and save predictions, metrics and embeddings.
-
-Usage (from Runs/External):
-    python src/run_external.py                      # all cohorts in config/config.yaml
-    python src/run_external.py --only METABRIC HUGO
-"""
-from __future__ import annotations
+"""Train E2M on TCGA and predict each external cohort, for each integration method."""
 
 import argparse
-import math
+import json
 import time
-import traceback
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
+import yaml
 
-from pipeline import (
-    RUN_ROOT,
-    align_mutations,
-    available_device,
-    choose_target_genes,
-    compute_gene_metrics,
-    compute_site_metrics,
-    integration_coordinates,
-    load_cohort_data,
-    model_config,
-    normalize_for_method,
-    print_gpu_status,
-    read_config,
-    reset_index_named,
-    run_path,
-    target_gene_list,
-    train_external_multitask_model,
-    write_dataframe,
-    write_json,
+import e2m
+from e2m.config import load_config
+from e2m.evaluation import evaluate_predictions
+
+from cohorts import (
+    load_cptac_cmi_data,
+    load_hugo_data,
+    load_immunopog_data,
+    load_liu_data,
+    load_metabric_data,
+    load_morrison_data,
+    load_riaz_data,
+    load_van_allen_data,
+    mutation_labels,
 )
+from integration import integrate, umap_coordinates
+
+RUN_ROOT = Path(__file__).resolve().parents[1]
+
+# cohort -> (loader, external batch column in clinical or None, per-site column in clinical or None)
+LOADERS = {
+    "CPTAC_CMI": (load_cptac_cmi_data, "project.project_id", "cases.primary_site"),
+    "IMMUNOPOG": (load_immunopog_data, None, "Cancer"),
+    "METABRIC": (load_metabric_data, None, "CANCER_TYPE_DETAILED"),
+    "HUGO": (load_hugo_data, None, None),
+    "LIU": (load_liu_data, None, None),
+    "RIAZ": (load_riaz_data, None, None),
+    "VAN_ALLEN": (load_van_allen_data, None, None),
+    "MORRISON": (load_morrison_data, None, None),
+}
 
 
-def target_settings(config: dict[str, Any], cohort: str, n_train: int) -> dict[str, Any]:
-    tcfg = config["target_selection"]
-    min_samples = int(tcfg.get("min_tcga_mutated_samples", 10))
-    min_prevalence = float(tcfg.get("min_tcga_mutation_prevalence", 0.0) or 0.0)
-    restrict = target_gene_list(config, cohort)
+def top_targets(path: Path, top_n: int) -> list[str]:
+    """The top_n targets of a TCGA cross-validation metrics file by normalized AUPRC."""
+    metrics = pd.read_csv(path, index_col=0)
+    return metrics["normalized_auprc"].dropna().sort_values(ascending=False).index[:top_n].tolist()
+
+
+def evaluate(labels, probabilities, targets, top) -> pd.DataFrame:
+    metrics = evaluate_predictions(labels[targets], (probabilities[targets] >= 0.5).astype(int), probabilities[targets], targets)
+    if top is not None:
+        metrics.insert(0, "top_tcga_target", metrics.index.isin(top))
+    return metrics
+
+
+def site_metrics(labels, probabilities, targets, sites: pd.Series, min_n: int) -> pd.DataFrame:
+    rows = []
+    for site, samples in sites.dropna().groupby(sites.dropna()).groups.items():
+        if len(samples) >= min_n:
+            metrics = evaluate(labels.loc[samples], probabilities.loc[samples], targets, None)
+            rows.append(metrics.reset_index().assign(site=site, site_n_samples=len(samples)))
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+
+
+def summarize(metrics: pd.DataFrame) -> dict:
+    evaluable = metrics[metrics["evaluable"]]
     return {
-        "min_tcga_mutated_samples": min_samples,
-        "min_tcga_mutation_prevalence": min_prevalence,
-        "effective_min_tcga_mutated_samples": max(min_samples, int(math.ceil(min_prevalence * max(n_train, 1)))),
-        "restrict_to_genes": restrict,
+        "n_evaluable": int(len(evaluable)),
+        "median_auprc": float(evaluable["auprc"].median()),
+        "median_normalized_auprc": float(evaluable["normalized_auprc"].median()),
+        "median_roc_auc": float(evaluable["roc_auc"].median()),
     }
 
 
-def metrics_summary(metrics: pd.DataFrame | None) -> dict[str, Any] | None:
-    if metrics is None or metrics.empty:
-        return None
-    ev = metrics[metrics["evaluable"].astype(bool)]
-    if ev.empty:
-        return {"n_evaluable": 0}
-    return {
-        "n_evaluable": int(len(ev)),
-        "median_auprc": float(ev["auprc"].median()),
-        "median_normalized_auprc": float(ev["normalized_auprc"].median()),
-        "median_roc_auc": float(ev["roc_auc"].median()),
-    }
+def run_cohort(cohort, settings, config, base, args, methods):
+    run = config["run"]
+    loader, batch_col, site_col = LOADERS[cohort]
+    expression, mutations, clinical, loader_meta, profiled = loader(RUN_ROOT / run["external_root"] / settings["data_dir"])
+    batches = clinical[batch_col].astype(str) if batch_col else None
+
+    cancers = base["run"]["cohorts"] if settings["tcga_cancers"] == "all" else settings["tcga_cancers"]
+    overrides = {**config["data"], "expression_dataset": settings["tcga_expression"], "expression_transform": "raw", "normalization": "none"}
+    tcga = e2m.Dataset.from_tcga(cancers, data_dir=RUN_ROOT / run["tcga_data_dir"], config=RUN_ROOT / run["tcga_config"],
+                                 data_overrides=overrides, with_tmb=False)
+    targets = tcga.targets.tolist()
+    labels = mutation_labels(mutations, profiled, expression.index, targets)
+    if "measured_genes" in loader_meta:  # targeted panel: genes outside it were not sequenced
+        labels.loc[:, ~labels.columns.isin(loader_meta["measured_genes"])] = float("nan")
+    ranking = settings.get("target_ranking")
+    top = top_targets(RUN_ROOT / ranking["file"], ranking["top_n"]) if ranking else None
+
+    scales = {"tcga_scale": "counts" if settings["tcga_expression"] == "star_counts" else "tpm",
+              "external_scale": settings["scale"], "cpm": base["data"].get("normalization") == "cpm"}
+    before = None
+    rows = []
+    for method in methods:
+        started = time.time()
+        output = RUN_ROOT / "output" / cohort / method
+        output.mkdir(parents=True, exist_ok=True)
+        train, test = integrate(tcga.expression, expression, method, external_batches=batches, **scales)
+
+        model = e2m.E2MModel(base).fit(train, tcga.mutations.loc[train.index])
+        model.save(output / "model")
+        probabilities = model.predict(test)
+        metrics = evaluate(labels.loc[test.index], probabilities, targets, top)
+        metrics.to_csv(output / "metrics.csv")
+        if site_col:
+            site_metrics(labels.loc[test.index], probabilities, targets, clinical[site_col].reindex(test.index),
+                         run["min_site_samples"]).to_csv(output / "site_metrics.csv", index=False)
+        probabilities.to_csv(output / "probabilities.csv.gz")
+        labels.loc[test.index].to_csv(output / "labels.csv.gz")
+        clinical.reindex(test.index).to_csv(output / "clinical.csv.gz")
+        model.embed(train).to_csv(output / "embeddings_tcga.csv.gz")
+        model.embed(test).to_csv(output / "embeddings_external.csv.gz")
+
+        if run["umap"] and not args.skip_umap:
+            if before is None:
+                before = umap_coordinates(*integrate(tcga.expression, expression, "none", **scales), batches, label=cohort)
+            before.to_csv(output / "umap_before.csv")
+            if method != "none":
+                umap_coordinates(train, test, batches, label=cohort).to_csv(output / "umap_after.csv")
+
+        summary = {**summarize(metrics), **({"top_targets": summarize(metrics[metrics["top_tcga_target"]])} if top else {})}
+        manifest = {
+            "cohort": cohort,
+            "method": method,
+            "main_method": method == methods[0] and not args.methods,
+            "tcga": {"cancers": cancers, "expression": settings["tcga_expression"], "samples": len(train),
+                     "preprocessing": tcga.manifest},
+            "external": {"samples": len(test), "profiled_samples": int(labels.loc[test.index].notna().any(axis=1).sum()),
+                         "scale": settings["scale"], "loader": loader_meta},
+            "features": train.shape[1],
+            "targets": {"n": len(targets), "rule": config["data"], "top_tcga_targets": top},
+            "model": model.metadata,
+            "metrics": summary,
+            "seconds": round(time.time() - started, 1),
+        }
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+        rows.append({"cohort": cohort, "method": method, "main": manifest["main_method"], "samples": len(test),
+                     "features": train.shape[1], "targets": len(targets), **summarize(metrics)})
+        print(f"{cohort} / {method}: {summarize(metrics)}", flush=True)
+    return rows
 
 
-def run_cohort(config: dict[str, Any], cohort: str, out_dir: Path, *, skip_integration: bool) -> dict[str, Any]:
-    ccfg = config["cohorts"][cohort]
-    method = ccfg["method"]
-    t0 = time.time()
-
-    data = load_cohort_data(config, cohort)
-    target_genes, target_table = choose_target_genes(config, data)
-    print(f"  targets={len(target_genes)} train={data.tcga_expression.shape} test={data.external_expression.shape}")
-
-    integ_before = None
-    if not skip_integration:
-        integ_before = integration_coordinates(
-            data.tcga_expression,
-            data.external_expression,
-            test_batches=data.test_batches,
-            external_label=cohort,
-        )
-
-    train_expr, test_expr, features, norm_label = normalize_for_method(config, data, method)
-    print(f"  normalization: {norm_label} -> features={len(features)}")
-
-    integ_after = None
-    if not skip_integration:
-        integ_after = integration_coordinates(
-            train_expr,
-            test_expr,
-            test_batches=data.test_batches.reindex(test_expr.index) if data.test_batches is not None else None,
-            external_label=cohort,
-        )
-
-    train_mut, test_mut = align_mutations(data, target_genes, train_expr, test_expr)
-    result = train_external_multitask_model(
-        train_expression=train_expr,
-        train_mutations=train_mut,
-        test_expression=test_expr,
-        target_genes=target_genes,
-        config=model_config(config),
-        random_seed=int(config.get("random_seed", 42)),
-        extract_embeddings=True,
-    )
-
-    metrics = site_metrics = None
-    if test_mut is not None:
-        metrics = compute_gene_metrics(test_mut, result.predictions, result.probabilities, target_genes)
-        if data.site_col is not None and data.site_col in data.clinical.columns:
-            site_metrics = compute_site_metrics(
-                test_mut,
-                result.predictions,
-                result.probabilities,
-                data.clinical,
-                target_genes,
-                site_col=data.site_col,
-                min_site_n=int(config["clinical"]["min_site_samples"]),
-            )
-
-    write_dataframe(target_table, out_dir / "qc" / "target_gene_selection.csv")
-    write_dataframe(reset_index_named(train_expr), out_dir / "processed" / "tcga_train_expression.csv.gz")
-    write_dataframe(reset_index_named(test_expr), out_dir / "processed" / "external_expression.csv.gz")
-    write_dataframe(reset_index_named(train_mut), out_dir / "processed" / "tcga_train_mutations.csv.gz")
-    if test_mut is not None:
-        write_dataframe(reset_index_named(test_mut), out_dir / "processed" / "external_mutations.csv.gz")
-    clin_external = data.clinical.loc[test_expr.index.intersection(data.clinical.index)]
-    write_dataframe(reset_index_named(clin_external), out_dir / "processed" / "external_clinical.csv.gz")
-    if integ_before is not None:
-        write_dataframe(reset_index_named(integ_before), out_dir / "integration" / "before_normalization.csv")
-    if integ_after is not None:
-        write_dataframe(reset_index_named(integ_after), out_dir / "integration" / "after_normalization.csv")
-    write_dataframe(reset_index_named(result.train_embeddings), out_dir / "embeddings" / "tcga_train_embeddings.csv.gz")
-    write_dataframe(reset_index_named(result.test_embeddings), out_dir / "embeddings" / "external_embeddings.csv.gz")
-    write_dataframe(reset_index_named(result.predictions), out_dir / "predictions" / "predictions.csv.gz")
-    write_dataframe(reset_index_named(result.probabilities), out_dir / "predictions" / "probabilities.csv.gz")
-    if metrics is not None:
-        write_dataframe(metrics, out_dir / "metrics" / "all_gene_metrics.csv")
-    if site_metrics is not None:
-        write_dataframe(site_metrics, out_dir / "metrics" / "site_gene_metrics.csv")
-
-    norm_cfg = ccfg.get("normalization", {}) or {}
-    manifest = {
-        "cohort": cohort,
-        "method": method,
-        "config_version": config.get("version"),
-        "random_seed": int(config.get("random_seed", 42)),
-        "device": available_device(),
-        "elapsed_s": round(time.time() - t0, 2),
-        "normalization": {"method": method, "label": norm_label, **norm_cfg},
-        "tcga": {
-            "expression_measure": ccfg.get("tcga_expression_measure"),
-            "cancer_types": ccfg.get("tcga_cancer_types"),
-            "n_samples": int(train_expr.shape[0]),
-            "n_genes_input": int(data.tcga_expression.shape[1]),
-            "meta": data.tcga_meta,
-        },
-        "external": {
-            "data_dir": ccfg.get("data_dir"),
-            "n_samples": int(test_expr.shape[0]),
-            "n_genes_input": int(data.external_expression.shape[1]),
-            "mutation_labels_available": test_mut is not None,
-            "site_column": data.site_col,
-            "meta": data.external_meta,
-        },
-        "features": {"n_features": int(len(features))},
-        "targets": {"n_target_genes": int(len(target_genes)), **target_settings(config, cohort, train_expr.shape[0])},
-        "model": config["model"]["multitask_nn"],
-        "metrics_summary": metrics_summary(metrics),
-    }
-    write_json(manifest, out_dir / "manifest.json")
-    print(f"  saved -> {out_dir}  ({manifest['elapsed_s']:.1f}s)")
-    return manifest
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", type=Path, default=RUN_ROOT / "config" / "config.yaml")
-    parser.add_argument("--only", nargs="+", help="Run only these cohorts.")
-    parser.add_argument("--output-dir", default="output", help="Output root, relative to Runs/External.")
-    parser.add_argument("--force", action="store_true", help="Re-run cohorts that already have a manifest.")
-    parser.add_argument("--skip-integration", action="store_true", help="Skip the before/after UMAP coordinates.")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=RUN_ROOT / "config" / "e2m.yaml")
+    parser.add_argument("--cohorts", nargs="+", help="Default: all cohorts in the config.")
+    parser.add_argument("--methods", nargs="+", help="Default: each cohort's methods in the config.")
+    parser.add_argument("--skip-umap", action="store_true")
     args = parser.parse_args()
 
-    config = read_config(args.config)
-    print_gpu_status()
-    output_root = run_path(args.output_dir)
-    cohorts = [c for c in config["cohorts"] if not args.only or c in args.only]
-
-    summary_rows = []
-    for i, cohort in enumerate(cohorts, 1):
-        print(f"\n=== [{i}/{len(cohorts)}] {cohort} / {config['cohorts'][cohort]['method']} ===")
-        out_dir = output_root / cohort
-        if (out_dir / "manifest.json").exists() and not args.force:
-            print("  [skip] manifest exists (use --force to re-run)")
-            continue
-        try:
-            manifest = run_cohort(config, cohort, out_dir, skip_integration=args.skip_integration)
-            summary_rows.append({
-                "cohort": cohort,
-                "method": manifest["method"],
-                "norm_label": manifest["normalization"]["label"],
-                "n_train": manifest["tcga"]["n_samples"],
-                "n_test": manifest["external"]["n_samples"],
-                "n_features": manifest["features"]["n_features"],
-                "n_targets": manifest["targets"]["n_target_genes"],
-                **(manifest["metrics_summary"] or {}),
-                "elapsed_s": manifest["elapsed_s"],
-                "status": "ok",
-            })
-        except Exception as exc:
-            traceback.print_exc()
-            summary_rows.append({"cohort": cohort, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
-
-    if summary_rows:
-        output_root.mkdir(parents=True, exist_ok=True)
-        summary = pd.DataFrame(summary_rows)
-        summary.to_csv(output_root / "runs_summary.csv", index=False)
-        print("\n" + summary.to_string(index=False))
+    config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    base = load_config(RUN_ROOT / config["run"]["tcga_config"], {"data": config["data"]})
+    e2m.set_verbose()
+    rows = []
+    for cohort in args.cohorts or list(config["cohorts"]):
+        settings = config["cohorts"][cohort]
+        rows += run_cohort(cohort, settings, config, base, args, args.methods or settings["methods"])
+    summary_path = RUN_ROOT / "output" / "runs_summary.csv"
+    if summary_path.exists():
+        previous = pd.read_csv(summary_path)
+        done = {(r["cohort"], r["method"]) for r in rows}
+        rows = [r for r in previous.to_dict("records") if (r["cohort"], r["method"]) not in done] + rows
+    pd.DataFrame(rows).to_csv(summary_path, index=False)
 
 
 if __name__ == "__main__":

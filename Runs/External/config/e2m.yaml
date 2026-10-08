@@ -1,0 +1,81 @@
+# Settings for src/run_external.py. Paths are relative to Runs/External.
+# TCGA data, preprocessing (CPM or counts) and model settings come from the TCGA run's config;
+# the `data` block below only replaces its target-selection rule.
+
+run:
+  tcga_config: ../TCGA/config/e2m.yaml
+  tcga_data_dir: ../TCGA/data
+  external_root: data/external
+  min_site_samples: 20
+  umap: true
+
+# TCGA training targets: genes mutated in at least 3% and at least 10 of the TCGA training samples, no cap.
+data:
+  min_mutation_prevalence: 0.03
+  min_mutation_positives: 10
+  max_mutation_targets: 0
+
+# Per cohort: TCGA cancer types ("all" = the cancer types of the TCGA run), TCGA expression file,
+# the scale of the cohort's expression (counts | tpm | log), and the integration methods; the first method is the main result.
+# target_ranking: the top_n targets by normalized AUPRC in a TCGA cross-validation metrics file (marked in the outputs).
+cohorts:
+  CPTAC_CMI:
+    data_dir: CMI_CPTAC
+    tcga_cancers: all
+    tcga_expression: star_counts
+    scale: counts
+    methods: [combat_seq, none, combat_seq_ref, combat, combat_ref, rank]
+
+  IMMUNOPOG:
+    data_dir: IMMUNOPOG
+    tcga_cancers: all
+    tcga_expression: star_counts
+    scale: counts
+    methods: [combat_seq, none, combat_seq_ref, combat, combat_ref, rank]
+
+  METABRIC:
+    data_dir: METABRIC
+    tcga_cancers: [BRCA]
+    tcga_expression: star_tpm
+    scale: log                # Illumina microarray, already log-scaled
+    methods: [combat, combat_ref, rank]
+
+  HUGO:
+    data_dir: HUGO
+    tcga_cancers: [SKCM]
+    tcga_expression: star_counts
+    scale: counts
+    methods: [combat_seq, none, combat_seq_ref, combat, combat_ref, rank]
+    target_ranking: {file: ../TCGA/output/cpm/SKCM/cv/metrics.csv, top_n: 20}
+
+  LIU:
+    data_dir: LIU
+    tcga_cancers: [SKCM]
+    tcga_expression: star_counts
+    scale: counts
+    methods: [combat_seq, none, combat_seq_ref, combat, combat_ref, rank]
+    target_ranking: {file: ../TCGA/output/cpm/SKCM/cv/metrics.csv, top_n: 20}
+
+  RIAZ:
+    data_dir: RIAZ
+    tcga_cancers: [SKCM]
+    tcga_expression: star_counts
+    scale: counts
+    methods: [combat_seq, none, combat_seq_ref, combat, combat_ref, rank]
+    target_ranking: {file: ../TCGA/output/cpm/SKCM/cv/metrics.csv, top_n: 20}
+
+  VAN_ALLEN:
+    data_dir: VAN_ALLEN
+    tcga_cancers: [SKCM]
+    tcga_expression: star_tpm
+    scale: tpm
+    methods: [combat, none, combat_ref, rank]
+    target_ranking: {file: ../TCGA/output/cpm/SKCM/cv/metrics.csv, top_n: 20}
+
+  MORRISON:
+    data_dir: MORRISON
+    tcga_cancers: [SKCM]
+    tcga_expression: star_counts
+    scale: log                # provided as batch-corrected logCPM
+    methods: [rank, combat, combat_ref]
+    target_ranking: {file: ../TCGA/output/cpm/SKCM/cv/metrics.csv, top_n: 20}
