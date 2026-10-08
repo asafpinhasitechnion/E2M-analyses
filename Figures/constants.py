@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import gzip
 import logging
+from pathlib import Path
+
+import requests
 
 import matplotlib as mpl
 import matplotlib.colors as mcolors
@@ -54,3 +58,19 @@ mpl.rcParams["axes.spines.right"] = False
 
 logging.getLogger("fontTools").setLevel(logging.WARNING)
 logging.getLogger("fontTools.subset").setLevel(logging.WARNING)
+
+
+# Data files read by the figures (Code_and_Analyses/data), downloaded when missing.
+PURITY_URL = "https://api.gdc.cancer.gov/data/4f277128-f793-4354-a13d-30cc7fe9f6b5"  # TCGA PanCanAtlas ABSOLUTE purity/ploidy
+PHENOTYPE_URL = "https://gdc-hub.s3.us-east-1.amazonaws.com/download/GDC-PANCAN.TCGA_phenotype.tsv"  # Xena GDC hub
+
+
+def fetch(url: str, path: Path) -> Path:
+    """Download `url` to `path` unless the file is already there (gzipped when `path` ends in .gz)."""
+    path = Path(path)
+    if not path.exists():
+        response = requests.get(url, timeout=600)
+        response.raise_for_status()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(gzip.compress(response.content) if path.suffix == ".gz" else response.content)
+    return path

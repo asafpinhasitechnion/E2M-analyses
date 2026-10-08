@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
+from constants import PHENOTYPE_URL, fetch
 from matplotlib.lines import Line2D
 
 
@@ -117,6 +118,7 @@ class Figure4Config:
         )
 
     def ensure_inputs(self) -> None:
+        fetch(PHENOTYPE_URL, self.tcga_clinical_path)
         missing = [
             path for path in (
                 self.tcga_results_root,
