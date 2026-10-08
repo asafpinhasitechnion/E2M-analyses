@@ -69,7 +69,7 @@ The file describes these as the clinically relevant point/indel drivers for each
 
 - Study metadata and molecular profiles come from the cBioPortal API (`https://www.cbioportal.org/api`). Study files are downloaded from the cBioPortal DataHub GitHub repository (`public/{study_id}`, master branch). The tarball list `DOWNLOAD_BASES` is empty, so the script always uses the GitHub fallback.
 - Expression: the `MRNA_EXPRESSION` file with datatype `CONTINUOUS`; if there is none, any `MRNA_EXPRESSION` file is used. Files whose names contain "zscore" are used only when no other file exists. Values are read as given. Rows are gene symbols (`Hugo_Symbol`), and duplicate symbols are averaged.
-- Mutations: the `MUTATION_EXTENDED` (MAF) file, filtered to the nonsilent classes listed in `NONSILENT_VARIANT_CLASSES` (Missense, Frame_Shift_Del/Ins, Nonsense, Nonstop, In_Frame_Del/Ins, Translation_Start_Site, Splice_Site, Splice_Region, Start_Codon_Del/Ins/SNP) and to the driver genes plus the genes in `HOTSPOT_PATTERNS`. If the MAF is missing or is a Git LFS pointer, mutations for the driver genes are fetched from the API using the `{study}_sequenced` sample list.
+- Mutations: the `MUTATION_EXTENDED` (MAF) file, filtered to the nonsilent classes listed in `NONSILENT_VARIANT_CLASSES` (Missense, Frame_Shift_Del/Ins, Nonsense, Nonstop, In_Frame_Del/Ins, Translation_Start_Site, Splice_Site, Splice_Region, Start_Codon_Del/Ins/SNP) and to the driver genes plus the genes in `HOTSPOT_PATTERNS`. If the MAF is missing or is a Git LFS pointer, mutations for the driver genes are fetched from the API using the `{study}_sequenced` sample list. Expression samples not in the `{study}_sequenced` list (no mutation data; for example 64 of 355 in GLASS and 3 in OncoSG) get missing labels, not wild-type, in both label modes.
 - Gene-level label: 1 if the sample has at least one such mutation in the gene, otherwise 0. The label matrix is indexed by the expression samples, so expression samples with no mutation record get 0.
 
 ### GEO series (prepare_geo.py)
@@ -77,12 +77,12 @@ The file describes these as the clinically relevant point/indel drivers for each
 - Downloads `{GSE}_series_matrix.txt.gz` from the NCBI GEO FTP and the GPL570 annotation (`GPL570.annot.gz`).
 - Expression: the series-matrix values are used as given (no transform). Probes are mapped to the first gene symbol in the GPL570 "Gene symbol" column and averaged per gene.
 - GSE39582 labels come from the sample characteristics. TP53, KRAS and BRAF are 1 for "M" and 0 for "WT", and other values are missing (not evaluable). `is_tumor` is 0 when dataset = "Non Tumoral". MMR (dMMR/pMMR) and CIMP (+/-) are also parsed into `driver_labels.csv.gz`, but they are not in the gene-level label matrix and are not modeled.
-- GSE31210 labels come from "gene alteration status". EGFR = "EGFR mutation +", KRAS = "KRAS mutation +" and ALK = "ALK-fusion +", with all other values counted as 0. ALK is not in the LUAD driver list, so it is not modeled.
+- GSE31210 labels come from "gene alteration status". EGFR = "EGFR mutation +", KRAS = "KRAS mutation +" and ALK = "ALK-fusion +", with all other values counted as 0. The 20 normal lung samples have no status: their labels are missing, and they are removed (`tumor_only: true`, from "tissue: primary lung tumor"). ALK is not in the LUAD driver list, so it is not modeled.
 - GEO cohorts have no per-variant records, so they produce no alteration-level labels.
 
 ### Alteration-level labels (alterations.py)
 
-The labels come from mutation events: the external cBioPortal `mutations_long.csv.gz`, the METABRIC MAF, and for TCGA the MC3 events file (barcodes are trimmed to the sample ID, e.g. TCGA-XX-XXXX-01A). For each event, the variant class, protein change and coding change are joined into one upper-case text string, and the labels are matched against that string (and, where given, the genomic start position):
+The labels come from mutation events: the external cBioPortal `mutations_long.csv.gz`, the METABRIC MAF, and for TCGA the MC3 events file (barcodes are trimmed to the sample ID, e.g. TCGA-XX-XXXX-01A; non-silent classes only, as for the external cohorts). For each event, the variant class, protein change and coding change are joined into one upper-case text string, and the labels are matched against that string (and, where given, the genomic start position):
 - EGFR_classic_activating: EGFR exon 19 deletion-like event (DEL/DELINS text at E746, L747, T751, S752 or P753, or start position 55242400-55242560) or L858R.
 - EGFR_exon20ins: EGFR in-frame insertion/duplication at residues A763-V774, or start position 55248900-55249180.
 - KRAS_G12C; KRAS_hotspot_broad: KRAS G12, G13, Q61 or A146.
@@ -98,15 +98,15 @@ A cohort is tested on an alteration label only if one of the label's genes is in
 
 ### Integration with TCGA (transfer.py)
 
-- TCGA (E2M): protein-coding genes only, duplicate symbols summed. Xena values are converted back to the linear scale (2^x - 1, no CPM), and samples must be present in both expression and MC3 (one vial per tumour). Every gene mutated in at least one training sample is a label.
-- External filters: samples must have both expression and mutation labels. For POG570, samples are kept by the clinical column and values in `filter`. For GSE39582 (`tumor_only: true`), only samples with `is_tumor` = 1 are kept.
+- TCGA (E2M): protein-coding genes only, duplicate symbols summed. Xena values are converted back to the linear scale (2^x - 1); counts (PRINCE) are then converted to CPM, TPM is used as is, and samples must be present in both expression and MC3 (one vial per tumour). Every gene mutated in at least one training sample is a label.
+- External filters: samples must have both expression and mutation labels. For POG570, samples are kept by the clinical column and values in `filter`. For GSE39582 and GSE31210 (`tumor_only: true`), only samples with `is_tumor` = 1 are kept.
 - log1p (natural log, after clipping negative values to 0) is applied to each side when the config says so. TCGA: always. External: true for paad_qcmg_uq_2016, luad_cas_2020, difg_glass and the POG570 splits; false for PRINCE, luad_oncosg_2020, METABRIC and the GEO series.
 - Genes: duplicate symbols are averaged and only genes shared by TCGA and the cohort are kept. A gene is dropped if it has any non-finite value, has zero variance over all samples, or has zero variance inside any batch of 2 or more samples.
 - ComBat (inmoose `pycombat_norm` with default settings, no covariates, no reference batch) is fitted on TCGA and the cohort together. Batches are the TCGA cancer type (`TCGA_<CANCER>`, so LGG/GBM and COAD/READ are separate batches) and the external cohort key.
 
 ### Targets, model and evaluation
 
-- A target (gene or alteration label) is selected if it has a label in TCGA and in the cohort, at least 3 TCGA positives (`min_tcga_positive`) and at least 5 external positives (`min_external_positive`). The reasons for skipping a target are written to `qc/target_selection.csv`.
+- A target (gene or alteration label) is selected if it has a label in TCGA and in the cohort, at least 3 TCGA positives (`min_tcga_positive`) and at least 5 external positives (`min_external_positive`). A target whose external labels equal those of an earlier target in the cohort's list is skipped (for example BRAF V600 any when every V600 mutation is V600E), so the same comparison is not reported twice. The reasons for skipping a target are written to `qc/target_selection.csv`.
 - One XGBClassifier is trained per target on all TCGA samples of the matched cancer type(s), with n_estimators 300, learning_rate 0.1, random_state 42, n_jobs -1, eval_metric logloss and scale_pos_weight = negatives/positives. There is no TCGA cross-validation in this run.
 - Prediction: probability on the external cohort; class = probability >= 0.5.
 - Metrics, computed on external samples with a non-missing label: ROC AUC, AUPRC (average precision), normalized AUPRC = (AUPRC - prevalence) / (1 - prevalence), accuracy, precision, recall, F1, MCC and the confusion counts. A target is `evaluable` when its evaluable samples contain both classes.

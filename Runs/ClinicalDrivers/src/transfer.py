@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 from alterations import alteration_labels_for_primary_targets, build_alteration_matrix
-from driver_genes import CANCER_DRIVER_GENES
+from driver_genes import CANCER_DRIVER_GENES, NONSILENT_VARIANT_CLASSES
 
 RUN_ROOT = Path(__file__).resolve().parents[1]
 
@@ -206,7 +206,9 @@ def load_external_standardized(
                 clinical = clinical.loc[keep]
 
     if label_mode == "alteration":
-        mutations = load_external_alteration_labels(cohort_dir, expression.index)
+        # Samples without sequencing (all gene labels missing) have missing alteration labels too
+        sequenced = mutations.notna().any(axis=1)
+        mutations = load_external_alteration_labels(cohort_dir, expression.index).astype(float).where(sequenced, axis=0)
 
     return expression, mutations, clinical
 
@@ -225,7 +227,8 @@ def load_tcga_alteration_labels(config: dict[str, Any], sample_ids: pd.Index) ->
     # replace this pan-cancer file; not yet checked that they give identical labels.
     events = pd.read_csv(run_path(config["data"]["tcga_mc3_events"]), sep="\t", usecols=usecols, low_memory=False)
     events["sample"] = events["sample"].map(tcga_event_sample_id)
-    events = events[events["sample"].isin(set(sample_ids.astype(str)))]
+    # Non-silent events only, as for the external cohorts (silent V600V, R132R, ... would otherwise match)
+    events = events[events["sample"].isin(set(sample_ids.astype(str))) & events["effect"].isin(NONSILENT_VARIANT_CLASSES)]
     return build_alteration_matrix(events, sample_ids)
 
 
@@ -241,7 +244,7 @@ def load_tcga_training(
     overrides = {
         "expression_dataset": f"star_{plan.tcga_expression_measure}",
         "expression_transform": "raw",       # linear scale; log1p is applied later per the cohort's config
-        "normalization": "none",
+        "normalization": "cpm" if plan.tcga_expression_measure == "counts" else "none",  # counts to CPM for sequencing depth
         "min_mutation_prevalence": 0,
         "min_mutation_positives": 1,
         "max_mutation_targets": 0,
@@ -376,6 +379,10 @@ def select_targets(
             reasons.append("too_few_tcga_positives")
         if in_external and external_pos < min_external_positive:
             reasons.append("too_few_external_positives")
+        # Same external labels as an earlier (more specific) target, e.g. BRAF V600 any when every V600 is V600E
+        same = [g for g in selected if external_series.equals(pd.to_numeric(external_mutations[g], errors="coerce"))]
+        if in_external and same:
+            reasons.append(f"same_external_labels_as_{same[0]}")
         is_selected = not reasons
         if is_selected:
             selected.append(gene)

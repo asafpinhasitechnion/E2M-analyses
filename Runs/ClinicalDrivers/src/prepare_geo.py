@@ -216,6 +216,9 @@ def extract_geo_driver_labels(accession: str, clinical: pd.DataFrame) -> tuple[p
             labels["CIMP_status"] = values
 
     elif accession == "GSE31210":
+        tissue_col = find_characteristic_column(clinical, "tissue:")
+        if tissue_col:
+            labels["is_tumor"] = values_after_colon(clinical[tissue_col]).eq("primary lung tumor").astype("Int64")
         status_col = find_characteristic_column(clinical, "gene alteration status:")
         if status_col:
             values = values_after_colon(clinical[status_col])
@@ -225,7 +228,8 @@ def extract_geo_driver_labels(accession: str, clinical: pd.DataFrame) -> tuple[p
                 "KRAS": "KRAS mutation +",
                 "ALK": "ALK-fusion +",
             }.items():
-                label = values.eq(pattern).astype("Int64")
+                # The normal lung samples have no status: missing, not wild-type
+                label = values.eq(pattern).astype("Int64").mask(values.eq(""))
                 labels[f"{gene}_alteration"] = label
                 mutation_cols[gene] = label
             labels["triple_negative_EGFR_KRAS_ALK"] = values.eq("EGFR/KRAS/ALK -").astype("Int64")

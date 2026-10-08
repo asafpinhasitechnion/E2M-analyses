@@ -43,7 +43,8 @@ class StudyPaths:
 
 
 def request_json(url: str, timeout: int = 60):
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # cBioPortal refuses requests without a User-Agent
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Final-E2M clinical-driver-validation"})
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -53,7 +54,7 @@ def post_json(url: str, payload, timeout: int = 120):
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Final-E2M clinical-driver-validation"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -463,9 +464,12 @@ def process_study(study_id: str, root: Path, force_download: bool = False, clean
     maf_ns = load_nonsilent_target_mutations(raw_dir, meta_records, study_id)
 
     sample_ids = list(expression.index.astype(str))
-    mutation_matrix = gene_level_matrix(maf_ns, sample_ids)
+    # Samples without mutation sequencing (not in the study's "sequenced" list) get missing labels, not wild-type
+    sequenced = set(request_json(f"{CBIO_API_BASE}/sample-lists/{study_id}_sequenced/sample-ids"))
+    mutation_matrix = gene_level_matrix(maf_ns, sample_ids).astype(float)
+    mutation_matrix.loc[~mutation_matrix.index.isin(sequenced)] = float("nan")
     hotspots = select_hotspot_records(maf_ns)
-    counts = target_gene_counts(mutation_matrix, sample_ids)
+    counts = target_gene_counts(mutation_matrix, [s for s in sample_ids if s in sequenced])
 
     expression.to_csv(paths.standardized_dir / "expression.csv.gz", compression="gzip")
     mutation_matrix.to_csv(paths.standardized_dir / "mutations_gene_level.csv.gz", compression="gzip")
@@ -483,6 +487,7 @@ def process_study(study_id: str, root: Path, force_download: bool = False, clean
         "mrna_rnaseq_v2_sample_count_api": metadata.get("mrnaRnaSeqV2SampleCount"),
         "complete_sample_count_api": metadata.get("completeSampleCount"),
         "expression_samples": expression.shape[0],
+        "expression_samples_sequenced": int(mutation_matrix.index.isin(sequenced).sum()),
         "expression_genes": expression.shape[1],
         "clinical_samples": clinical.shape[0],
         "target_nonsilent_mutation_records": maf_ns.shape[0],

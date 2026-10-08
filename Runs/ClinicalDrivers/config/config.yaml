@@ -102,6 +102,7 @@ cohorts:
     external_expression_type: GPL570 Affymetrix microarray
     log1p_tcga: true
     log1p_external: false
+    tumor_only: true
 
   # POG570 is pan-cancer; each split uses the matching TCGA cancer type.
   pog570_bcgsc_2020__BRCA:
