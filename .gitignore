@@ -1,5 +1,4 @@
 # Cluster-only files
-submit/
 *.submit
 *.sh
 !Runs/*/scripts/*.sh

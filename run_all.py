@@ -35,8 +35,7 @@ def main():
             continue
         folder, script, figures = PARTS[part]
         if part == "clinicaldrivers":
-            run(folder, "src/prepare_cbioportal.py", "--all")
-            run(folder, "src/prepare_geo.py", "--all")
+            run(folder, "src/prepare_cohorts.py")
         run(folder, script)
         if figures:
             run("Figures", "run_figures.py", figures)

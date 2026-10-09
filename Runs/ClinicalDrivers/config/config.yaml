@@ -1,8 +1,6 @@
 data:
   # Relative paths are resolved from Runs/ClinicalDrivers.
-  standardized_dir: data/standardized          # written by prepare_cbioportal.py / prepare_geo.py
-  metabric_dir: data/external/METABRIC         # cBioPortal brca_metabric files (read directly)
-  tcga_mc3_events: data/mc3.v0.2.8.PUBLIC.toil.xena.gz   # TCGA MC3 events for alteration-level labels
+  standardized_dir: data/standardized          # written by src/prepare_cohorts.py
 
 tcga:
   # TCGA data are loaded with E2M (e2m.Dataset.from_tcga) from the TCGA run's data folder; missing files are downloaded there.
@@ -19,7 +17,7 @@ target_selection:
   min_tcga_positive: 3
   min_external_positive: 5
 
-# drivers: key into CANCER_DRIVER_GENES (src/driver_genes.py).
+# source: cBioPortal study or GEO series (default: the cohort key). drivers: key into CANCER_DRIVER_GENES (src/driver_genes.py).
 # Expression is ComBat-integrated (TCGA vs cohort); log1p is applied per side before ComBat.
 cohorts:
   paad_iatlas_prince_2022:
@@ -73,6 +71,7 @@ cohorts:
     log1p_external: true
 
   metabric:
+    source: brca_metabric
     label: METABRIC
     cancer: breast cancer
     drivers: BRCA
@@ -91,7 +90,6 @@ cohorts:
     external_expression_type: GPL570 Affymetrix microarray
     log1p_tcga: true
     log1p_external: false
-    tumor_only: true
 
   GSE31210:
     label: GSE31210 / Okayama
@@ -102,7 +100,6 @@ cohorts:
     external_expression_type: GPL570 Affymetrix microarray
     log1p_tcga: true
     log1p_external: false
-    tumor_only: true
 
   # POG570 is pan-cancer; each split uses the matching TCGA cancer type.
   pog570_bcgsc_2020__BRCA:

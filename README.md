@@ -39,5 +39,4 @@ The order is TCGA, then Figures 1-3; External, then Figure 4; Clinical drivers; 
 Most data are downloaded by the code on first use into each run's `data/` folder. Files to place by hand:
 
 - External: CPTAC/CMI, and the supplementary tables of Hugo, Van Allen and ImmunoPOG (`Runs/External/README.md`).
-- Clinical drivers: the METABRIC cBioPortal files and the MC3 events file (`Runs/ClinicalDrivers/README.md`).
 - Single-cell: `CCLE_adata.h5ad` and DepMap `OmicsSomaticMutations.csv` in `Runs/SingleCell/data/CCLE` (`Runs/SingleCell/README.md`).
