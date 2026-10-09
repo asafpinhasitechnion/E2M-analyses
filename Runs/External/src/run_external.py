@@ -83,14 +83,20 @@ def run_cohort(cohort, settings, config, base, args, methods):
     tcga = e2m.Dataset.from_tcga(cancers, data_dir=RUN_ROOT / run["tcga_data_dir"], config=RUN_ROOT / run["tcga_config"],
                                  data_overrides=overrides, with_tmb=False)
     targets = tcga.targets.tolist()
+    ranking = settings.get("target_ranking")
+    ranking_file = args.ranking_file or RUN_ROOT / ranking["file"].format(variant=args.variant) if ranking else None
+    top = top_targets(ranking_file, args.top_n or ranking["top_n"]) if ranking else None
+    if top is not None:  # train and evaluate on the ranked TCGA targets only
+        missing = [g for g in top if g not in targets]
+        if missing:
+            raise ValueError(f"{cohort}: ranked targets not among the TCGA training targets: {missing}")
+        targets = top
     labels = mutation_labels(mutations, profiled, expression.index, targets)
     if "measured_genes" in loader_meta:  # targeted panel: genes outside it were not sequenced
         labels.loc[:, ~labels.columns.isin(loader_meta["measured_genes"])] = float("nan")
-    ranking = settings.get("target_ranking")
-    top = top_targets(RUN_ROOT / ranking["file"], ranking["top_n"]) if ranking else None
 
     scales = {"tcga_scale": "counts" if settings["tcga_expression"] == "star_counts" else "tpm",
-              "external_scale": settings["scale"], "cpm": base["data"].get("normalization") == "cpm"}
+              "external_scale": settings["scale"], "cpm": args.normalization == "cpm"}
     before = None
     rows = []
     for method in methods:
@@ -99,7 +105,7 @@ def run_cohort(cohort, settings, config, base, args, methods):
         output.mkdir(parents=True, exist_ok=True)
         train, test = integrate(tcga.expression, expression, method, external_batches=batches, **scales)
 
-        model = e2m.E2MModel(base).fit(train, tcga.mutations.loc[train.index])
+        model = e2m.E2MModel(base).fit(train, tcga.mutations.loc[train.index, targets])
         model.save(output / "model")
         probabilities = model.predict(test)
         metrics = evaluate(labels.loc[test.index], probabilities, targets, top)
@@ -129,7 +135,7 @@ def run_cohort(cohort, settings, config, base, args, methods):
             "tcga": {"cancers": cancers, "expression": settings["tcga_expression"], "samples": len(train),
                      "preprocessing": tcga.manifest},
             "external": {"samples": len(test), "profiled_samples": int(labels.loc[test.index].notna().any(axis=1).sum()),
-                         "scale": settings["scale"], "loader": loader_meta},
+                         "scale": settings["scale"], "cpm": scales["cpm"], "loader": loader_meta},
             "features": train.shape[1],
             "targets": {"n": len(targets), "rule": config["data"], "top_tcga_targets": top},
             "model": model.metadata,
@@ -149,11 +155,20 @@ def main():
     parser.add_argument("--cohorts", nargs="+", help="Default: all cohorts in the config.")
     parser.add_argument("--methods", nargs="+", help="Default: each cohort's methods in the config.")
     parser.add_argument("--skip-umap", action="store_true")
-    parser.add_argument("--output-dir", type=Path, default=RUN_ROOT / "output")
+    parser.add_argument("--output-dir", type=Path, help="Default: output/<variant> (cpm or counts).")
+    parser.add_argument("--top-n", type=int, help="Overrides target_ranking.top_n of the ranked cohorts.")
+    parser.add_argument("--ranking-file", type=Path, help="Overrides target_ranking.file of the ranked cohorts.")
+    parser.add_argument("--normalization", choices=["cpm", "none"],
+                        help="Overrides the TCGA config's data.normalization for counts (none: log1p of counts, no library-size step).")
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     base = load_config(RUN_ROOT / config["run"]["tcga_config"], {"data": config["data"]})
+    # Run variant: TCGA counts with CPM ("cpm") or without ("counts"), as the TCGA run's output folders
+    args.normalization = args.normalization or base["data"].get("normalization", "cpm")
+    args.variant = "cpm" if args.normalization == "cpm" else "counts"
+    args.output_dir = args.output_dir or RUN_ROOT / "output" / args.variant
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     e2m.set_verbose()
     rows = []
     for cohort in args.cohorts or list(config["cohorts"]):

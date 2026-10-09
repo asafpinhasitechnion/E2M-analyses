@@ -7,6 +7,7 @@
 data/
 output*/
 cache/
+logs/
 
 # Python / Jupyter
 __pycache__/

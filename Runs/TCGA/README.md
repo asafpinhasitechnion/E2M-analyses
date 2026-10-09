@@ -29,7 +29,7 @@ Options:
 - `--normalization`: `cpm` (default) or `none`.
 - `--config`: default `config/e2m.yaml`. `--data-dir`: default `data/`.
 
-All settings are in `config/e2m.yaml`. A GPU is used when available; training is deterministic on a given machine and software stack, and close but not identical on other hardware.
+All settings are in `config/e2m.yaml`. A GPU is used when available (for the neural network and for XGBoost; XGBoost on the GPU gives slightly different trees than on the CPU); training is deterministic on a given machine and software stack, and close but not identical on other hardware.
 
 ## Data
 
@@ -64,9 +64,9 @@ Cross-validation: 5 folds, shuffled, seed 42; stratified by cancer type for "all
 
 Full-data model: the same network and early stopping, trained on all samples of the cohort. Used for sample embeddings (256-dimensional encoder output) and output-head weights.
 
-SHAP: for each target with pooled normalized AUPRC > 0.05, a separate XGBoost classifier (300 trees, learning rate 0.1, scale_pos_weight = negatives/positives, seed 42) is trained on all samples of the cohort and explained with Tree SHAP on all samples. These models are used only for interpretation.
+SHAP: for each target with pooled normalized AUPRC > 0.05, a separate XGBoost classifier (300 trees, learning rate 0.1, scale_pos_weight = negatives/positives, seed 42, on the GPU) is trained on all samples of the cohort and explained with Tree SHAP on all samples. These models are used only for interpretation.
 
-TMB: XGBoost regression (300 trees, learning rate 0.1), 5-fold cross-validation stratified by cancer type, on all 32 cancer types together; metrics overall and per cancer type.
+TMB: XGBoost regression (300 trees, learning rate 0.1, on the GPU), 5-fold cross-validation stratified by cancer type, on all 32 cancer types together; metrics overall and per cancer type.
 
 ## Outputs
 

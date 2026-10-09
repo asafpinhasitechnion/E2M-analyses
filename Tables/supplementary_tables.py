@@ -1,11 +1,14 @@
 """Build Supplementary Tables S1-S4 from the run and figure outputs.
 
-Run after the Runs/ pipelines and the Figure 1, 4 and 5 notebooks. Writes one workbook per table to Tables/output/.
+Run after the Runs/ pipelines and the Figure 1, 4 and 5 notebooks. Writes one workbook per table to
+Tables/output/<variant>/<method>/, for the run variant and External method of Figures/constants.py
+(E2M_NORMALIZATION, E2M_EXTERNAL_METHOD).
 """
 from __future__ import annotations
 
 import ast
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -16,14 +19,18 @@ from sklearn.metrics import average_precision_score
 from statsmodels.stats.multitest import multipletests
 
 ROOT = Path(__file__).resolve().parents[1]
-FIG1 = ROOT / "Figures" / "Figure1" / "output" / "Supplemental"
-FIG4 = ROOT / "Figures" / "Figure4" / "output" / "source_data"
+# Run variant and External method, as in Figures/constants.py
+VARIANT = "cpm" if os.environ.get("E2M_NORMALIZATION", "cpm") == "cpm" else "counts"
+EXTERNAL_METHOD = os.environ.get("E2M_EXTERNAL_METHOD") or None
+METHOD_LABEL = EXTERNAL_METHOD or "main"
+FIG1 = ROOT / "Figures" / "Figure1" / "output" / VARIANT / "Supplemental"
+FIG4 = ROOT / "Figures" / "Figure4" / "output" / VARIANT / METHOD_LABEL / "source_data"
 FIG4_NOTEBOOK = ROOT / "Figures" / "Figure4" / "Figure4.ipynb"
-EXTERNAL = ROOT / "Runs" / "External" / "output"
+EXTERNAL = ROOT / "Runs" / "External" / "output" / VARIANT
 EXTERNAL_CONFIG = ROOT / "Runs" / "External" / "config" / "e2m.yaml"
 DRIVERS = ROOT / "Runs" / "ClinicalDrivers" / "output" / "summary" / "clinical_driver_results.csv"
 SINGLE_CELL = ROOT / "Runs" / "SingleCell" / "output" / "plot_inputs"
-OUT = Path(__file__).resolve().parent / "output"
+OUT = Path(__file__).resolve().parent / "output" / VARIANT / METHOD_LABEL
 
 # External cohorts: display name, disease context, data source, and which clinical analyses were run.
 EXTERNAL_COHORTS = {
@@ -95,9 +102,9 @@ def table_s2() -> dict[str, pd.DataFrame]:
 
 
 def _external_run(cohort: str) -> Path:
-    """A cohort's main External result: its first integration method in the run's config."""
+    """A cohort's External result: EXTERNAL_METHOD if the cohort ran it, else its first integration method in the config."""
     methods = yaml.safe_load(EXTERNAL_CONFIG.read_text(encoding="utf-8"))["cohorts"][cohort]["methods"]
-    return EXTERNAL / cohort / methods[0]
+    return EXTERNAL / cohort / (EXTERNAL_METHOD if EXTERNAL_METHOD in methods else methods[0])
 
 
 def _bh(p: pd.Series) -> np.ndarray:

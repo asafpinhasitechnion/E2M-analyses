@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
-from constants import PHENOTYPE_URL, fetch
+from constants import EXTERNAL_METHOD, METHOD_LABEL, NORMALIZATION, PHENOTYPE_URL, VARIANT, fetch
 from matplotlib.lines import Line2D
 
 
@@ -103,15 +103,15 @@ class Figure4Config:
     def from_project_root(cls, project_root: str | Path) -> "Figure4Config":
         root = Path(project_root).resolve()
         tcga_run = root / "Runs" / "TCGA"
-        figure_dir = root / "Figures" / "Figure4" / "output"
+        figure_dir = root / "Figures" / "Figure4" / "output" / VARIANT / METHOD_LABEL
         return cls(
             project_root=root,
-            tcga_results_root=tcga_run / "output" / "cpm",
+            tcga_results_root=tcga_run / "output" / VARIANT,
             tcga_data_dir=tcga_run / "data",
             tcga_config_path=tcga_run / "config" / "e2m.yaml",
             tcga_mutation_label_dir=tcga_run / "data" / "mutations",
             tcga_clinical_path=root / "data" / "GDC-PANCAN.TCGA_phenotype.tsv.gz",
-            external_results_root=root / "Runs" / "External" / "output",
+            external_results_root=root / "Runs" / "External" / "output" / VARIANT,
             external_config_path=root / "Runs" / "External" / "config" / "e2m.yaml",
             figure_dir=figure_dir,
             source_data_dir=figure_dir / "source_data",
@@ -240,7 +240,8 @@ def load_tcga_expression(config: Figure4Config, cancer: str) -> pd.DataFrame:
     """Expression matrix the TCGA model was trained on (E2M with the Runs/TCGA config, cached in the data folder)."""
     import e2m
 
-    data = e2m.Dataset.from_tcga([cancer], data_dir=config.tcga_data_dir, config=config.tcga_config_path, with_tmb=False)
+    data = e2m.Dataset.from_tcga([cancer], data_dir=config.tcga_data_dir, config=config.tcga_config_path,
+                                 data_overrides={"normalization": NORMALIZATION}, with_tmb=False)
     expression = data.expression
     expression.index = pd.Index([tcga_sample_id(x) for x in expression.index.astype(str)], name="sample")
     return expression[~expression.index.duplicated(keep="first")]
@@ -960,8 +961,11 @@ EXTERNAL_COHORT_LABELS = {
 
 
 def external_cohort_methods(config: Figure4Config) -> dict[str, str]:
-    """Each cohort's main integration method: the first of its methods in the External run's config."""
+    """Each cohort's integration method: the first of its methods in the External run's config, or EXTERNAL_METHOD
+    (constants.py) for every cohort that ran it."""
     cohorts = yaml.safe_load(config.external_config_path.read_text(encoding="utf-8"))["cohorts"]
+    if EXTERNAL_METHOD:
+        return {cohort: EXTERNAL_METHOD for cohort, settings in cohorts.items() if EXTERNAL_METHOD in settings["methods"]}
     return {cohort: settings["methods"][0] for cohort, settings in cohorts.items()}
 
 

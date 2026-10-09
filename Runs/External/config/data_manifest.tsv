@@ -1,0 +1,35 @@
+path	bytes	sha256	obtained	source
+CMI_CPTAC/clinical.tsv	3378342	4ee086e8045f14c9305d3afedb6e49095f15613d6a1c8b96c680637796fa85f0	manual	NCI GDC cart of 2026-02-15 (CPTAC-2, CPTAC-3, CMI-MBC, CMI-MPC): clinical.tsv
+CMI_CPTAC/expression_counts.tsv.gz	100208119	3f88903e1433c6249bce03da30e911ced7ccc9e1465838e10954180add65c02a	manual	Built from the cart's STAR gene counts (*.rna_seq.augmented_star_gene_counts.tsv): protein-coding genes by symbol, unstranded counts, one column per file UUID
+CMI_CPTAC/gdc_sample_sheet.2026-02-15.tsv	1685832	d314342b0b5dba1c89c74075dfe797e367a2e02e03891208c14687298908e8e0	manual	NCI GDC cart of 2026-02-15: sample sheet
+CMI_CPTAC/mutations_manifest.tsv	541693	2ac82bcbaf6dd6a9fb9aa002598b084ea981fbb30c2ddd7b43433b681824a1af	manual	List of the MAF files merged into mutations_merged.maf.gz (not read by the code)
+CMI_CPTAC/mutations_merged.maf.gz	201786262	386387f9bcfdd6145a16f070ccc6ff3110c36f0726478ed56394d51c4285b561	manual	Built from the cart's masked somatic MAFs (*.wxs.aliquot_ensemble_masked.maf.gz), with the source file name on each row
+CMI_CPTAC/sample.tsv	2544417	fb23c4b8981070ac8066111d85aaee19216f499069c0aec6705b4212d879d218	manual	NCI GDC cart of 2026-02-15: sample.tsv
+HUGO/entrez_gene_symbol_cache.csv	667559	7da38075767b32139b5a627f8de5caacbe736e5e4959faa82bd95dfb3a61d7c4	cache	Entrez ID to symbol mapping from mygene; kept so the mapping does not change between runs
+HUGO/GSE78220_raw_counts_GRCh38.p13_NCBI.tsv.gz	1468337	670b3699e97d4128fcc6be648c2c81fe564ce8635689bbf0e91326e3ff074240	downloaded	GEO GSE78220, NCBI-generated raw counts (fetched by the code if missing)
+HUGO/NIHMS765463-supplement-5.xlsx	6416640	f8e5beee1a151cf52213021558491245985ba1ce7a9dea48598bd98aa912c984	manual	Hugo et al. 2016 (Cell 165:35), supplementary Table S1
+IMMUNOPOG/10780432ccr201163-sup-240190_4_supp_6604687_qh8c2m.xlsx	23295	584a3ad4dbcee4c3b137538d15fa0ab4762b2656d19f3f272411ed089db2e2ac	manual	Pender et al. 2021 (Clin Cancer Res 27:202), Supplementary Table 1
+IMMUNOPOG/ImmunoPOG_coding_mutations.txt.gz	918004	62404ef1d312ff59669b548ff54ce872a6435acfe54749d471e8a8b2478bca49	downloaded	www.bcgsc.ca/downloads/immunoPOG/ImmunoPOG_coding_mutations.txt.gz
+IMMUNOPOG/ImmunoPOG_expression_raw_counts_all.txt.gz	9180015	634a791815018ca3aa515021b8cef4eea44cc794f7962e8e1cd905e1327eff95	downloaded	www.bcgsc.ca/downloads/immunoPOG/ImmunoPOG_expression_raw_counts_all.txt.gz
+LIU/all_muts_12_1_2020_ref_alt_counts_added.maf	17351839	c0ea2dad8a6f96f843eccc8f1cbc7ebd3edb9d805af46777a69386e700afa44b	downloaded	github.com/vanallenlab/schadendorf-pd1, commit 536010a
+LIU/rnaseq_rawcounts.txt	16828917	6eb51f50814fcaf4cb05e8ed992e72d165d7c2eddd197a086236d27e53966ee7	downloaded	github.com/vanallenlab/schadendorf-pd1, commit 536010a
+LIU/Supplemental_Table_1_wAge.tsv	27668	5a15c742c1813d618a58f248f4298ac3700f3c53734bbc2f57d7c8e8c86b348c	downloaded	github.com/vanallenlab/schadendorf-pd1, commit 536010a
+METABRIC/data_clinical_patient.txt	408387	2a6bbadc6e4b2b07c0505559d438da959fc5c9aba55c7194abc394e2d6454995	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+METABRIC/data_clinical_sample.txt	299020	9a2291e065e2a0a5337b4eaeb09836e70b1bc3e1ed17714a013b53515697e6dc	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+METABRIC/data_gene_panel_matrix.txt	52160	4d4e921e810c442d4638a18d1e32414e3feefa79cdc8171a1be46ed133e408e8	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+METABRIC/data_gene_panel_metabric_173.txt	1225	3ad83bccacb0c97601d25e2b85b2cb983df57c95c4ce9a8e8869e033c26c7567	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+METABRIC/data_mrna_illumina_microarray.txt	689254852	b8aa84ea4d205483e4b2c2794a5eac6e73d4644e0f13e74c940f8e3d81d93dd6	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+METABRIC/data_mutations.txt	4023586	e8b9386b8f0a8f71de1e24ef1180de965705ee7f8a86ff414298dde3f66a1a12	downloaded	cBioPortal datahub brca_metabric, commit a022eca
+MORRISON/RNA-CancerCell-MORRISON1-combat_batch_corrected-logcpm-all_samples.tsv	105906509	439233475c3081701545ec1d07e0e324b6aaf502c32a9c3cd053807911d4bbe5	downloaded	github.com/ParkerICI/MORRISON-1-public, commit a4ac597
+MORRISON/RNA-CancerCell-MORRISON1-metadata.tsv	50153	67e69241adde493a6aa77dbf5b6410563c9421bba8a1f50a9bfd79f0d7bc7463	downloaded	github.com/ParkerICI/MORRISON-1-public, commit a4ac597
+MORRISON/Subjects-CancerCell-MORRISON1-metadata.tsv	36185	43bb541ba9415b0e51afdcf810d08ae0406cf307216ef759a41ea02af64ea422	downloaded	github.com/ParkerICI/MORRISON-1-public, commit a4ac597
+MORRISON/WES-CancerCell-MORRISON1-metadata.tsv	39061	83bce66eb3b48b2fd6674213fa82480eaf8b8263779efe5e79aa69c582551f3d	downloaded	github.com/ParkerICI/MORRISON-1-public, commit a4ac597
+MORRISON/WES-CancerCell-MORRISON1-variants.tsv	70868891	e428323d9b23b1e67a1bae444010e66310a092425f92756cd77a9f5dd2b19cd5	downloaded	github.com/ParkerICI/MORRISON-1-public, commit a4ac597
+RIAZ/bms038_clinical_data.csv	8112	a70ae5a0b1156b6d85ec89f0d58f3f67538bfb969d53ec5d98232411d19869ab	downloaded	github.com/riazn/bms038_analysis, commit 137111c
+RIAZ/CountData.BMS038.txt	9895554	a61fe108572cae5b56f4291fb560b19dd14b477c7d7b273f746bb316451f1cb3	downloaded	github.com/riazn/bms038_analysis, commit 137111c
+RIAZ/pre_therapy_nonsynonmous_mutations.csv	2555798	e68569fd55caf93c730e690ae99948254fca382d024f24eb9c73e94cf6e0d3ed	downloaded	github.com/riazn/bms038_analysis, commit 137111c
+RIAZ/SampleTableCorrected.9.19.16.csv	11689	775106fc1d43684bbd22414d179c4af08036de32cc2edacb1f50ed38768a4496	downloaded	github.com/riazn/bms038_analysis, commit 137111c
+VAN_ALLEN/ensembl_gene_symbol_cache.csv	1434112	e22d69c8ca627a12a57e2b50ef87b026bc0adfef5a71ac64990b541d189dc4b2	cache	Ensembl ID to symbol mapping from mygene; kept so the mapping does not change between runs
+VAN_ALLEN/tables1.mutation_list_all_patients.xlsx	12062391	bca038fc653b76cbe5cae572c19ad7244435c4270003ee150d71a68d3f0989bf	manual	Van Allen et al. 2015 (Science 350:207), supplementary Table S1
+VAN_ALLEN/tables2.clinical_and_genome_characteristics_each_patient.xlsx	74335	318baca14af00069eb42da06adace274e2181e91c7a431fdac74ec1da483ee3e	manual	Van Allen et al. 2015 (Science 350:207), supplementary Table S2
+VAN_ALLEN/TPM_RSEM_VAScience2015.txt	9168422	49d8c45e766135dd67e297a7e4285c8b4599079e6a9f497ac3838c30acda2da7	downloaded	github.com/vanallenlab/VanAllen_CTLA4_Science_RNASeq_TPM, commit ca459ce (fetched by the code if missing)

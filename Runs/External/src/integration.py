@@ -5,6 +5,7 @@ Methods (TCGA is always one batch):
 - combat / combat_ref: ComBat (inmoose pycombat_norm) on the log values, jointly or with TCGA as the reference batch.
 - combat_seq / combat_seq_ref: ComBat-seq on raw counts, jointly or with TCGA as the reference batch, then CPM + log1p.
 - rank: each gene is ranked across samples within each side separately and scaled to (0, 1].
+- sample_rank: each sample's genes are ranked within that sample and scaled to (0, 1]; sample by sample, no cohort-level step.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-METHODS = ("none", "combat", "combat_ref", "combat_seq", "combat_seq_ref", "rank")
+METHODS = ("none", "combat", "combat_ref", "combat_seq", "combat_seq_ref", "rank", "sample_rank")
 SCALES = ("counts", "tpm", "log")
 
 
@@ -90,6 +91,8 @@ def integrate(
             return tcga, external
         if method == "rank":
             return _rank(tcga), _rank(external)
+        if method == "sample_rank":
+            return _rank(tcga.T).T, _rank(external.T).T
         combined = _combat(pd.concat([tcga, external]), batch, ref)
     return combined.loc[tcga.index], combined.loc[external.index]
 

@@ -9,14 +9,15 @@ Install E2M as in `Runs/TCGA/README.md`, plus `inmoose`, `umap-learn`, `openpyxl
 ```
 python src/run_external.py                                   # all cohorts, all their methods
 python src/run_external.py --cohorts RIAZ --methods combat_seq
+python src/run_external.py --normalization none          # TCGA counts without CPM: output/counts/
 ```
 
-Settings are in `config/e2m.yaml`: per cohort the TCGA cancer types, the TCGA expression file, the scale of the cohort's expression, and the integration methods (the first is the main result). TCGA data, preprocessing (CPM) and the model come from `Runs/TCGA/config/e2m.yaml`; the melanoma cohorts mark the top 20 targets of the TCGA-SKCM run (`Runs/TCGA/output/cpm/SKCM/cv/metrics.csv`), so Runs/TCGA must be run first. `check_cohorts.ipynb` shows the processing of each cohort step by step.
+Settings are in `config/e2m.yaml`: per cohort the TCGA cancer types, the TCGA expression file, the scale of the cohort's expression, and the integration methods (the first is the main result). TCGA data, preprocessing (CPM, or none with `--normalization none`) and the model come from `Runs/TCGA/config/e2m.yaml`; the melanoma cohorts are trained and evaluated on the top 20 targets of the TCGA-SKCM run of the same variant by normalized AUPRC (`Runs/TCGA/output/<variant>/SKCM/cv/metrics.csv`, `<variant>` = `cpm` or `counts`; `--top-n` changes the number), so Runs/TCGA must be run first. `explore_run.ipynb` runs the steps of one cohort, one per cell.
 
 ## Method
 
-- TCGA training data: `e2m.Dataset.from_tcga` (as in Runs/TCGA), linear counts or TPM. Targets: genes mutated in at least 3% and at least 10 of the TCGA training samples.
-- Integration, on the genes shared with the cohort (`src/integration.py`, TCGA is one batch): `none` (each sample on its own: CPM + log1p, or log1p of TPM); `combat` / `combat_ref` (ComBat on the log values, jointly or with TCGA as the reference batch); `combat_seq` / `combat_seq_ref` (ComBat-seq on counts, then CPM + log1p); `rank` (each gene ranked across samples within each side).
+- TCGA training data: `e2m.Dataset.from_tcga` (as in Runs/TCGA), linear counts or TPM. Targets: genes mutated in at least 3% and at least 10 of the TCGA training samples; for the melanoma cohorts, the top 20 TCGA-SKCM targets instead.
+- Integration, on the genes shared with the cohort (`src/integration.py`, TCGA is one batch): `none` (each sample on its own: CPM + log1p, log1p of the counts without CPM, or log1p of TPM); `combat` / `combat_ref` (ComBat on the log values, jointly or with TCGA as the reference batch); `combat_seq` / `combat_seq_ref` (ComBat-seq on counts, then CPM + log1p, or log1p without CPM); `rank` (each gene ranked across samples within each side); `sample_rank` (each sample's genes ranked within the sample, so it does not depend on CPM).
 - Model: an E2M model trained on all TCGA samples of the cohort's cancer types and applied to the cohort; one model per cohort and method.
 - Labels: a sample is profiled if it (or its patient) has rows in the cohort's mutation data; it is 1 for a gene with a coding call and 0 otherwise. Coding calls are the 9 MAF classes of the TCGA labels (Missense, Nonsense, Frame_Shift_Del/Ins, In_Frame_Del/Ins, Splice_Site, Translation_Start_Site, Nonstop) or their equivalents in other annotations (Sequence Ontology: missense, stop gained/lost, start lost, frameshift, in-frame insertion/deletion, splice acceptor/donor, protein altering; Oncotator: Start_Codon_SNP/Del/Ins, Stop_Codon_Del). Samples that are not profiled keep their clinical data and have missing labels, which are left out of the metrics.
 - Every RNA sample with clinical data is kept (for the embeddings and clinical analyses).
@@ -61,4 +62,4 @@ Files go under `data/external/<folder>/`. METABRIC, Liu, Riaz and Morrison are d
 
 ## Outputs
 
-`output/<cohort>/<method>/`: `metrics.csv` (per target; `top_tcga_target` marks the melanoma top 20), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `expression_external.csv.gz` (the integrated expression the model was applied to), `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/runs_summary.csv` summarizes all runs.
+`output/<variant>/<cohort>/<method>/` (`<variant>` = `cpm` or `counts`): `metrics.csv` (per target), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `expression_external.csv.gz` (the integrated expression the model was applied to), `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/<variant>/runs_summary.csv` summarizes all runs.
