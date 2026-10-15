@@ -1,6 +1,5 @@
 random_state: 42
 cv_folds: 5
-multitask_preset: simple_wide_run      # src/models/presets.py
 preprocess_target_sum: 10000.0         # normalize_total target before log1p
 
 xgboost:

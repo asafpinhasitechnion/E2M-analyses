@@ -12,8 +12,8 @@ import scanpy as sc
 import config
 from models.multitask import compute_binary_metrics
 
-FRANGIEH_MULTITASK = "FrangiehIzar2021_RNA_mc800_simple_wide_run"
-FRANGIEH_PER_GENE = "FrangiehIzar2021_RNA_per_gene_mc800_baseline"
+FRANGIEH_MULTITASK = "FrangiehIzar2021_RNA_mc300_simple_wide_run"
+FRANGIEH_PER_GENE = "FrangiehIzar2021_RNA_per_gene_mc300_baseline"
 CONDITION_COL = "perturbation_2"
 CONTROL_LABELS = ("non-targeting", "control")
 

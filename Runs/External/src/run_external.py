@@ -72,10 +72,13 @@ def summarize(metrics: pd.DataFrame) -> dict:
     }
 
 
-def run_cohort(cohort, settings, config, base, args, methods):
+def run_cohort(cohort, settings, config, base, args, methods, shared=None):
+    """shared: a model shared by several cohorts (run_shared); methods is then [its name]."""
     run = config["run"]
     loader, batch_col, site_col = LOADERS[cohort]
     expression, mutations, clinical, loader_meta, profiled = loader(RUN_ROOT / run["external_root"] / settings["data_dir"])
+    if shared:  # only the genes all the cohorts of the shared model measured
+        expression = expression[expression.columns.intersection(shared["genes"])]
     batches = clinical[batch_col].astype(str) if batch_col else None
 
     cancers = base["run"]["cohorts"] if settings["tcga_cancers"] == "all" else settings["tcga_cancers"]
@@ -103,9 +106,16 @@ def run_cohort(cohort, settings, config, base, args, methods):
         started = time.time()
         output = args.output_dir / cohort / method
         output.mkdir(parents=True, exist_ok=True)
-        train, test = integrate(tcga.expression, expression, method, external_batches=batches, **scales)
+        train, test = integrate(tcga.expression, expression, shared["method"] if shared else method, external_batches=batches, **scales)
 
-        model = e2m.E2MModel(base).fit(train, tcga.mutations.loc[train.index, targets])
+        if shared and "model" in shared:  # trained once: every cohort of a shared model has the same TCGA input
+            if not train.equals(shared["train"]) or targets != shared["targets"]:
+                raise ValueError(f"{cohort}: TCGA input or targets differ from the other cohorts of {method}")
+            model = shared["model"]
+        else:
+            model = e2m.E2MModel(base).fit(train, tcga.mutations.loc[train.index, targets])
+            if shared:
+                shared.update(model=model, train=train, targets=targets)
         model.save(output / "model")
         probabilities = model.predict(test)
         metrics = evaluate(labels.loc[test.index], probabilities, targets, top)
@@ -131,7 +141,8 @@ def run_cohort(cohort, settings, config, base, args, methods):
         manifest = {
             "cohort": cohort,
             "method": method,
-            "main_method": method == methods[0] and not args.methods,
+            "main_method": method == methods[0] and not args.methods and not shared,
+            **({"shared_model": {"cohorts": shared["cohorts"], "method": shared["method"]}} if shared else {}),
             "tcga": {"cancers": cancers, "expression": settings["tcga_expression"], "samples": len(train),
                      "preprocessing": tcga.manifest},
             "external": {"samples": len(test), "profiled_samples": int(labels.loc[test.index].notna().any(axis=1).sum()),
@@ -149,6 +160,21 @@ def run_cohort(cohort, settings, config, base, args, methods):
     return rows
 
 
+def run_shared(name, spec, config, base, args, cohorts):
+    """One model for several cohorts: trained once on TCGA, on the genes all of them share with TCGA (the intersection),
+    and applied to each; written as method <name> of each cohort."""
+    settings = [config["cohorts"][c] for c in spec["cohorts"]]
+    keys = ("tcga_cancers", "tcga_expression", "scale", "target_ranking")
+    if any(s.get(k) != settings[0].get(k) for s in settings for k in keys):
+        raise ValueError(f"{name}: the cohorts of a shared model need the same {', '.join(keys)}")
+    genes = None
+    for cohort, s in zip(spec["cohorts"], settings):
+        columns = LOADERS[cohort][0](RUN_ROOT / config["run"]["external_root"] / s["data_dir"])[0].columns
+        genes = columns if genes is None else genes.intersection(columns)
+    shared = {"method": spec["method"], "cohorts": spec["cohorts"], "genes": genes}
+    return [row for cohort in cohorts for row in run_cohort(cohort, config["cohorts"][cohort], config, base, args, [name], shared)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=RUN_ROOT / "config" / "e2m.yaml")
@@ -164,16 +190,23 @@ def main():
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     base = load_config(RUN_ROOT / config["run"]["tcga_config"], {"data": config["data"]})
-    # Run variant: TCGA counts with CPM ("cpm") or without ("counts"), as the TCGA run's output folders
+    # Run variant, as the TCGA run's output folders: TCGA counts with CPM (the default, output/) or without (output/counts/)
     args.normalization = args.normalization or base["data"].get("normalization", "cpm")
-    args.variant = "cpm" if args.normalization == "cpm" else "counts"
+    args.variant = "" if args.normalization == "cpm" else "counts"
     args.output_dir = args.output_dir or RUN_ROOT / "output" / args.variant
     args.output_dir.mkdir(parents=True, exist_ok=True)
     e2m.set_verbose()
+    shared_models = config.get("shared_models") or {}
     rows = []
     for cohort in args.cohorts or list(config["cohorts"]):
         settings = config["cohorts"][cohort]
-        rows += run_cohort(cohort, settings, config, base, args, args.methods or settings["methods"])
+        methods = [m for m in args.methods or settings["methods"] if m not in shared_models]
+        if methods:
+            rows += run_cohort(cohort, settings, config, base, args, methods)
+    for name, spec in shared_models.items():
+        cohorts = [c for c in spec["cohorts"] if not args.cohorts or c in args.cohorts]
+        if cohorts and (not args.methods or name in args.methods):
+            rows += run_shared(name, spec, config, base, args, cohorts)
     summary_path = args.output_dir / "runs_summary.csv"
     if summary_path.exists():
         previous = pd.read_csv(summary_path)

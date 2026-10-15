@@ -7,6 +7,7 @@ from pathlib import Path
 import scanpy as sc
 
 import config
+from datasets.labels import frangieh_single_guide
 from models.per_gene import (
     get_genes_by_min_cells,
     infer_cell_line_name,
@@ -15,7 +16,7 @@ from models.per_gene import (
 
 
 FILE_NAME = "FrangiehIzar2021_RNA.h5ad"
-MIN_CELLS_PER_GENE = 800
+MIN_CELLS_PER_GENE = 300
 NON_TARGET_LABEL = "control"
 GENE_COL = "perturbation"
 CONDITION_COL = "perturbation_2"
@@ -31,6 +32,7 @@ def main() -> None:
         return
 
     adata = sc.read_h5ad(data_path)
+    adata = frangieh_single_guide(adata)  # single-guide cells, as the multitask model
     sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
     sc.pp.log1p(adata)
 

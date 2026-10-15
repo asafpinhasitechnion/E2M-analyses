@@ -45,11 +45,16 @@ POSTER_COLORS = [
 RESPONSE_PALETTE = {"R": "#558771", "NR": "#aa4b53"}
 FULL_RESPONSE_PALETTE = {"CR": "#558771", "PR": "#82a899", "SD": "#e0cc9b", "PD": "#aa4b53"}
 RESPONSE_ORDER = ["R", "NR"]
+MAX_MUTATION_CLUSTERS = 8  # TCGA mutation space over-clustered above this (add_tcga_mutation_spaces)
+OVERCLUSTERED_MUTATION_NN = 15
+MIN_OTHER_CLUSTER_SHARE = 0.05
+OTHER_LABEL = "other"  # small clusters of an over-clustered space: grey in the UMAPs, left out of the survival tests
+OTHER_COLOR = "#BDBDBD"
 FULL_RESPONSE_ORDER = ["CR", "PR", "SD", "PD"]
 
 # Compact labels for plot titles so per-cluster panels stay short, e.g. "Morrison BOR by emb cluster".
 SPACE_SHORT = {"embedding": "emb", "expression": "expr", "mutation_pca": "mut"}
-CLINICAL_VAR_SHORT = {"Full_response": "BOR", "Response": "response", "OS_time": "OS", "PFS_time": "PFS"}
+CLINICAL_VAR_SHORT = {"Full_response": "BOR", "Response": "response", "OS_time": "OS", "PFS_time": "PFS", "RFS_time": "RFS"}
 
 
 def _short_space(space: str) -> str:
@@ -455,16 +460,25 @@ def add_tcga_mutation_spaces(
         if labels.shape[1] < 2:
             raise ValueError(f"{cancer}: mutation matrix has fewer than two nonzero genes.")
         bundle["mutation_labels"] = labels
-        bundle["mutation_pca_umap"] = compute_mutation_pca_umap(
+        mutation_space = lambda n_neighbors: compute_mutation_pca_umap(
             labels,
             n_components=int(p.get("mut_pca_components", 256)),
-            n_neighbors=int(p["mut_nn"]),
+            n_neighbors=n_neighbors,
             min_dist=float(p.get("mut_min_dist", 0.3)),
             leiden_resolution=float(p["mut_leiden_res"]),
             cluster_method=p.get("mut_cluster_method", "leiden"),
             n_clusters=int(p.get("mut_clusters", 4)),
             random_state=random_state,
         )
+        bundle["mutation_pca_umap"] = mutation_space(int(p["mut_nn"]))
+        # Over-clustering: with few mutated genes, small n_neighbors splits the samples into many small
+        # mutation-combination clusters. Then the mutation space uses n_neighbors 15 (UMAP's default), and clusters
+        # with fewer than 5% of the samples are grouped as "other".
+        if bundle["mutation_pca_umap"]["labels"].nunique() > MAX_MUTATION_CLUSTERS:
+            bundle["mutation_pca_umap"] = mutation_space(OVERCLUSTERED_MUTATION_NN)
+            clusters = bundle["mutation_pca_umap"]["labels"]
+            share = clusters.map(clusters.value_counts(normalize=True))
+            bundle["mutation_pca_umap"]["labels"] = clusters.where(share >= MIN_OTHER_CLUSTER_SHARE, OTHER_LABEL)
     return bundles
 
 
@@ -527,7 +541,7 @@ def _prepare_survival_groups(
     surv["event"] = surv["event"].astype(bool)
     df = surv.join(groups, how="inner").dropna(subset=["group"])
     counts = df["group"].value_counts()
-    keep = counts[counts >= min_group_size].index
+    keep = counts[(counts >= min_group_size) & (counts.index != OTHER_LABEL)].index
     df = df[df["group"].isin(keep)].copy()
     if df["group"].nunique() < 2:
         raise ValueError(f"Need >=2 groups with >= {min_group_size} samples (got {dict(counts)}).")
@@ -601,10 +615,12 @@ def plot_umap_categorical(
     raw_labels = pd.Series(labels, index=coords.index)
     missing = raw_labels.isna()
     labels = raw_labels.astype("string")
-    palette = {str(k): v for k, v in palette.items()} if palette is not None else build_label_palette(labels.loc[~missing])
+    palette = {str(k): v for k, v in palette.items()} if palette is not None else build_label_palette(labels.loc[~missing & labels.ne(OTHER_LABEL)])
+    if labels.eq(OTHER_LABEL).any():
+        palette[OTHER_LABEL] = OTHER_COLOR
     colors = labels.astype(str).map(palette)
-    colors.loc[missing] = "#BDBDBD"
-    colors = colors.fillna("#BDBDBD")
+    colors.loc[missing] = OTHER_COLOR
+    colors = colors.fillna(OTHER_COLOR)
     fig, ax = plt.subplots(figsize=figsize)
     ax.scatter(coords["UMAP1"], coords["UMAP2"], c=colors, s=point_size, edgecolors="none", alpha=0.95)
     ax.set_title(title, fontsize=TITLE_FS - 1)
@@ -1045,6 +1061,7 @@ def top_external_metrics(bundles: dict[str, dict], *, top_n: int, min_positive: 
 
 
 def top_cptac_site_metrics(bundle: dict, *, top_n: int, min_site_samples: int, min_positive: int, score_col: str) -> pd.DataFrame:
+    """Top genes per CPTAC/CMI primary site."""
     metrics = bundle.get("site_metrics")
     if metrics is None or score_col not in metrics.columns:
         return pd.DataFrame()
@@ -1435,7 +1452,7 @@ def plot_cptac_site_auprc_tiles(
     min_positive: int = 10,
     score_col: str = "normalized_auprc",
 ) -> dict:
-    """Stacked site-stratified AUPRC tile plot for CPTAC/CMI (all sites in one figure)."""
+    """Stacked AUPRC tile plot for CPTAC/CMI by primary site."""
     bundles = part["bundles"] if "bundles" in part else part
     bundle = bundles.get("CPTAC_CMI")
     if bundle is None or bundle.get("site_metrics") is None:
@@ -1478,33 +1495,30 @@ def plot_cptac_per_site_auprc_tiles(
 ) -> dict:
     """One AUPRC tile PDF per CPTAC/CMI primary site.
 
-    Writes one tile file per CPTAC/CMI primary site as
-    `cptac_<slug>_top{N}_<score>_gene_tiles.pdf`
-    under `Figures/Figure4/output/cptac_cmi/`. Display labels use `CPTAC_SITE_LABEL_MAP`;
+    Writes `cptac_<slug>_top{N}_<score>_gene_tiles.pdf` per primary site under `Figures/Figure4/output/cptac_cmi/`. Site display labels use `CPTAC_SITE_LABEL_MAP`;
     file slugs are the lower-cased, space/comma-stripped display label.
     """
     bundles = part["bundles"] if "bundles" in part else part
     bundle = bundles.get("CPTAC_CMI")
     if bundle is None or bundle.get("site_metrics") is None:
         return {}
-    site_metrics = bundle["site_metrics"]
     out_dir = config.figure_dir / "cptac_cmi"
-    tile_sites = (
-        site_metrics.groupby("site")["site_n_samples"].first()
+    metrics = bundle["site_metrics"]
+    sites = (
+        metrics.groupby("site")["site_n_samples"].first()
         .loc[lambda s: s >= int(min_site_samples)]
         .sort_values(ascending=False)
         .index.tolist()
     )
     results: dict[str, pd.DataFrame] = {}
-    for site in tile_sites:
-        display_name = _cptac_site_label(site)
-        slug = _cptac_site_slug(site)
-        site_df = site_metrics[site_metrics["site"] == site]
+    for site in sites:
+        site_df = metrics[metrics["site"] == site]
         n = int(site_df["site_n_samples"].iloc[0])
+        stem = f"cptac_{_cptac_site_slug(site)}"
         try:
-            results[site] = plot_auprc_tile_line(
-                site_df, title=f"{display_name} (n = {n})",
-                save_path=out_dir / f"cptac_{slug}_top{top_n}_{score_col}_gene_tiles.pdf",
+            results[stem] = plot_auprc_tile_line(
+                site_df, title=f"{_cptac_site_label(site)} (n = {n})",
+                save_path=out_dir / f"{stem}_top{top_n}_{score_col}_gene_tiles.pdf",
                 top_n=top_n, min_positive=min_positive, score_col=score_col,
             )
         except ValueError:
@@ -1530,11 +1544,11 @@ def run_cptac_per_site_clinical(
 ) -> dict:
     """Per-primary-site embedding/expression UMAP+Leiden and OS Kaplan-Meier for CPTAC/CMI.
 
-    For every site with at least `site_min_samples` samples this recomputes embedding and
-    expression-PCA UMAP+Leiden, saves cluster and cross-cluster UMAPs, and runs an OS log-rank
-    test per representation (skipped when fewer than `min_os_samples` OS-usable samples).
-    OS p-values are BH-FDR corrected within representation space and the KM panels are redrawn
-    with the adjusted value. PDFs -> Figures/Figure4/output/cptac_cmi/cptac_<slug>_*.pdf.
+    For every site with at least `site_min_samples` samples
+    this recomputes embedding and expression-PCA UMAP+Leiden, saves cluster and cross-cluster UMAPs, and runs an OS
+    log-rank test per representation (skipped when fewer than `min_os_samples` OS-usable samples). OS p-values are
+    BH-FDR corrected within representation space and the KM panels are redrawn with the adjusted value.
+    PDFs -> Figures/Figure4/output/cptac_cmi/cptac_<slug>_*.pdf.
     """
     if bundle is None:
         bundle = load_external_bundle(external_bundle_path(config, "CPTAC_CMI"))
@@ -1561,7 +1575,7 @@ def run_cptac_per_site_clinical(
     km_jobs: list[dict] = []
     for site in selected_sites:
         display_name = _cptac_site_label(site)
-        slug = _cptac_site_slug(site)
+        file_stem = f"cptac_{_cptac_site_slug(site)}"
         p = {**site_params_default, **site_params.get(site, {})}
         site_idx = clinical.index[clinical[CPTAC_SITE_COL] == site].intersection(emb.index)
         n = len(site_idx)
@@ -1583,13 +1597,13 @@ def run_cptac_per_site_clinical(
         )
 
         if plot:
-            plot_umap_categorical(emb_proj["coords"], emb_proj["labels"], title=f"{display_name} - Embedding (n = {n})", save_path=out_dir / f"cptac_{slug}_embedding_umap_clusters.pdf")
-            plot_umap_categorical(expr_proj["coords"], expr_proj["labels"], title=f"{display_name} - Expression (n = {n})", save_path=out_dir / f"cptac_{slug}_expression_umap_clusters.pdf")
-            plot_umap_categorical(emb_proj["coords"], expr_proj["labels"].loc[emb_proj["coords"].index], title=f"{display_name} - emb by expr clusters", save_path=out_dir / f"cptac_{slug}_emb_by_expr_clusters.pdf")
-            plot_umap_categorical(expr_proj["coords"], emb_proj["labels"].loc[expr_proj["coords"].index], title=f"{display_name} - expr by emb clusters", save_path=out_dir / f"cptac_{slug}_expr_by_emb_clusters.pdf")
+            plot_umap_categorical(emb_proj["coords"], emb_proj["labels"], title=f"{display_name} - Embedding (n = {n})", save_path=out_dir / f"{file_stem}_embedding_umap_clusters.pdf")
+            plot_umap_categorical(expr_proj["coords"], expr_proj["labels"], title=f"{display_name} - Expression (n = {n})", save_path=out_dir / f"{file_stem}_expression_umap_clusters.pdf")
+            plot_umap_categorical(emb_proj["coords"], expr_proj["labels"].loc[emb_proj["coords"].index], title=f"{display_name} - emb by expr clusters", save_path=out_dir / f"{file_stem}_emb_by_expr_clusters.pdf")
+            plot_umap_categorical(expr_proj["coords"], emb_proj["labels"].loc[expr_proj["coords"].index], title=f"{display_name} - expr by emb clusters", save_path=out_dir / f"{file_stem}_expr_by_emb_clusters.pdf")
 
         for space, proj in (("embedding", emb_proj), ("expression", expr_proj)):
-            save_path = out_dir / f"cptac_{slug}_{space}_os_km.pdf"
+            save_path = out_dir / f"{file_stem}_{space}_os_km.pdf"
             if n_os >= int(min_os_samples):
                 try:
                     stats = plot_km_curves(
@@ -1647,11 +1661,11 @@ def expression_pca_components(expression: pd.DataFrame, *, n_components: int, ra
 def compute_external_spaces(bundle: dict, *, params: dict, random_state: int) -> dict[str, pd.DataFrame | pd.Series]:
     emb = bundle["embeddings_external"]
     expression = load_external_expression(bundle).loc[emb.index]
-    emb_params = params["embedding"]
-    expr_params = params["expression"]
-    emb_proj = run_umap_cluster(emb, random_state=random_state, **emb_params)
+    # One set of clustering parameters for both spaces
+    cluster_params = {k: params[k] for k in ("n_neighbors", "min_dist", "leiden_resolution")}
+    emb_proj = run_umap_cluster(emb, random_state=random_state, **cluster_params)
     expr_pcs = expression_pca_components(expression, n_components=emb.shape[1], random_state=random_state)
-    expr_proj = run_umap_cluster(expr_pcs, random_state=random_state, scale=False, **expr_params)
+    expr_proj = run_umap_cluster(expr_pcs, random_state=random_state, scale=False, **cluster_params)
     return {
         "embedding_coords": emb_proj["coords"],
         "embedding_clusters": emb_proj["labels"],
@@ -1838,7 +1852,7 @@ def run_external_clinical_cohort(
         plot_umap_categorical(spaces["embedding_coords"], spaces["expression_clusters"].loc[spaces["embedding_coords"].index], title=f"{label} - emb by expr clusters", save_path=out_dir / f"{cohort.lower()}_emb_by_expr_clusters.pdf")
         plot_umap_categorical(spaces["expression_coords"], spaces["embedding_clusters"].loc[spaces["expression_coords"].index], title=f"{label} - expr by emb clusters", save_path=out_dir / f"{cohort.lower()}_expr_by_emb_clusters.pdf")
     if endpoints is None:
-        endpoints = [(n, t, e) for n, t, e in (("OS", "OS_time", "OS_event"), ("PFS", "PFS_time", "PFS_event")) if t in clinical.columns and e in clinical.columns]
+        endpoints = [(n, t, e) for n, t, e in (("OS", "OS_time", "OS_event"), ("PFS", "PFS_time", "PFS_event"), ("RFS", "RFS_time", "RFS_event")) if t in clinical.columns and e in clinical.columns]
     km_rows = []
     for endpoint, time_col, event_col in endpoints:
         for space in ("embedding", "expression"):

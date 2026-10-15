@@ -125,15 +125,37 @@ def normalized_auprc(auprc, prevalence):
     return (auprc - prevalence) / (1 - prevalence)
 
 
+def _bar_value(metric, prevalence, rank_mode):
+    """Bar-plot value: the metric (metric), normalized AUPRC (normalized) or AUPRC / prevalence (lift)."""
+    if rank_mode == "normalized":
+        return normalized_auprc(metric, prevalence)
+    if rank_mode == "lift":
+        return metric / prevalence.where(prevalence > 0)
+    return metric
+
+
+_BAR_YLABEL = {"metric": "{}", "normalized": "Normalized {}", "lift": "{} / prevalence"}
+
+
 def _auc_trapezoid(y, x) -> float:
     if hasattr(np, "trapezoid"):
         return float(np.trapezoid(y, x))
     return float(np.trapz(y, x))
 
 
-def plot_auprc_boxplot(run_dir: Path, title: str, out_dir: Path, *, top_n: int = 12, figsize=(3, 2.8), point_size: int = 5) -> Path:
-    metric_col = "average_precision"
-    metrics = pd.read_csv(run_dir / "metric_summary_per_gene_folds.csv")
+def plot_auprc_boxplot(
+    run_dir: Path,
+    title: str,
+    out_dir: Path,
+    *,
+    top_n: int = 12,
+    figsize=(3, 2.8),
+    point_size: int = 5,
+    metrics_file: str = "metric_summary_per_gene_folds.csv",
+    metric_col: str = "average_precision",
+    show_prevalence: bool = False,
+) -> Path:
+    metrics = pd.read_csv(run_dir / metrics_file)
     top_genes = (
         metrics.groupby("gene", as_index=False)[metric_col].mean()
         .sort_values(metric_col, ascending=False)
@@ -148,6 +170,12 @@ def plot_auprc_boxplot(run_dir: Path, title: str, out_dir: Path, *, top_n: int =
     fig, ax = plt.subplots(figsize=figsize)
     sns.boxplot(data=plot_df, x="gene", y=metric_col, order=order, color=BEIGE, fliersize=0, linewidth=1.0, ax=ax)
     sns.stripplot(data=plot_df, x="gene", y=metric_col, order=order, color=FOLD_COLOR, dodge=False, size=point_size, alpha=0.6, ax=ax)
+    if show_prevalence:
+        # Baseline AUPRC of each gene (its mean prevalence across folds), as a short dash over its box.
+        baseline = plot_df.groupby("gene")["prevalence"].mean().reindex(order).to_numpy()
+        ax.hlines(baseline, np.arange(len(order)) - 0.4, np.arange(len(order)) + 0.4, colors=PURPLE, linestyles="--",
+                  lw=1.0, zorder=4, label="Prevalence")
+        ax.legend(loc="lower left", frameon=True, fontsize=LEGEND_FS)
     ax.set_title(title, fontsize=TITLE_FS)
     ax.set_xlabel("", fontsize=AXIS_LABEL_FS)
     ax.set_ylabel("AUPRC", fontsize=AXIS_LABEL_FS)
@@ -366,15 +394,15 @@ def plot_tian_top10_heatmap(metrics_csv: Path, out_dir: Path, *, top_n: int = 10
     return _save(fig, out_dir / "tian_top10_perturbation_heatmap.pdf")
 
 
-def plot_frangieh_scatter(metrics_csv: Path, out_dir: Path, *, top_labels: int = 4, figsize=(3.4, 2.7)) -> Path:
+def plot_frangieh_scatter(metrics_csv: Path, out_dir: Path, *, top_labels: int = 5, figsize=(3.4, 2.7)) -> Path:
     df = pd.read_csv(metrics_csv).rename(columns={"average_precision": "auprc"})
-    df["normalized_auprc"] = normalized_auprc(df["auprc"], df["prevalence"])
+    df["auprc_lift"] = df["auprc"] / df["prevalence"]
     summary = (
         df.groupby("gene", as_index=False)
         .agg(
             prevalence_mean=("prevalence", "mean"),
             auprc_mean=("auprc", "mean"),
-            normalized_auprc_mean=("normalized_auprc", "mean"),
+            auprc_lift_mean=("auprc_lift", "mean"),
         )
         .sort_values("auprc_mean", ascending=False)
     )
@@ -384,7 +412,7 @@ def plot_frangieh_scatter(metrics_csv: Path, out_dir: Path, *, top_labels: int =
     sc = ax.scatter(
         summary["prevalence_mean"],
         summary["auprc_mean"],
-        c=summary["normalized_auprc_mean"],
+        c=summary["auprc_lift_mean"],
         cmap=CMAP_BEIGE_PURPLE,
         s=48,
         alpha=0.85,
@@ -394,18 +422,29 @@ def plot_frangieh_scatter(metrics_csv: Path, out_dir: Path, *, top_labels: int =
     xmax = max(0.001, float(summary["prevalence_mean"].max()) * 1.05)
     ax.plot([0, xmax], [0, xmax], "--", color="gray", lw=1, label="baseline")
 
-    for _, row in summary.iterrows():
-        if row["gene"] in label_genes:
-            ax.annotate(
-                str(row["gene"]),
-                (row["prevalence_mean"], row["auprc_mean"]),
-                xytext=(4, 4),
-                textcoords="offset points",
-                fontsize=ANNOTATION_FS,
-            )
+    # Labels sit in a column to the left of the labeled points (the top genes cluster at the right edge, next to the
+    # colorbar), spaced apart vertically, with leader lines back to the points.
+    labeled = summary[summary["gene"].isin(label_genes)].sort_values("auprc_mean", ascending=False)
+    ymax = float(summary["auprc_mean"].max()) * 1.08
+    ax.set_ylim(top=ymax)
+    gap, label_x = 0.085 * ymax, float(labeled["prevalence_mean"].min()) - 0.14 * xmax
+    label_y = []
+    for y in labeled["auprc_mean"]:
+        label_y.append(min(y, label_y[-1] - gap) if label_y else y)
+    for (_, row), y in zip(labeled.iterrows(), label_y):
+        ax.annotate(
+            str(row["gene"]),
+            (row["prevalence_mean"], row["auprc_mean"]),
+            xytext=(label_x, y),
+            textcoords="data",
+            ha="right",
+            va="center",
+            fontsize=ANNOTATION_FS,
+            arrowprops={"arrowstyle": "-", "color": "0.45", "lw": 0.5, "shrinkA": 1, "shrinkB": 3},
+        )
 
     cbar = fig.colorbar(sc, ax=ax)
-    cbar.set_label("Normalized AUPRC", fontsize=COLORBAR_LABEL_FS, rotation=270, labelpad=7)
+    cbar.set_label("AUPRC / prevalence", fontsize=COLORBAR_LABEL_FS, rotation=270, labelpad=11)
     cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
 
     ax.set_title("Frangieh", fontsize=TITLE_FS)
@@ -415,7 +454,7 @@ def plot_frangieh_scatter(metrics_csv: Path, out_dir: Path, *, top_labels: int =
     ax.grid(alpha=0.22)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(loc="lower right", frameon=True, fontsize=LEGEND_FS)
+    ax.legend(loc="lower right", bbox_to_anchor=(1, 0.12), frameon=True, fontsize=LEGEND_FS)
     return _save(fig, out_dir / "frangieh_prevalence_vs_auprc_scatter.pdf")
 
 
@@ -502,18 +541,12 @@ def plot_metric_bars(
     summary = pd.read_csv(summary_csv)
     folds = pd.read_csv(folds_csv)
     d = summary[["gene", metric_col, "oof_prevalence"]].copy()
-    if rank_mode == "normalized":
-        d["plot_value"] = normalized_auprc(d[metric_col], d["oof_prevalence"])
-    else:
-        d["plot_value"] = d[metric_col]
+    d["plot_value"] = _bar_value(d[metric_col], d["oof_prevalence"], rank_mode)
     d = d.dropna(subset=["plot_value", "oof_prevalence"]).sort_values("plot_value", ascending=False).head(top_n)
     order = d["gene"].astype(str).tolist()
 
     fold_df = folds[folds["gene"].astype(str).isin(order)].copy()
-    if rank_mode == "normalized":
-        fold_df["plot_metric"] = normalized_auprc(fold_df[fold_metric_col], fold_df["prevalence"])
-    else:
-        fold_df["plot_metric"] = fold_df[fold_metric_col]
+    fold_df["plot_metric"] = _bar_value(fold_df[fold_metric_col], fold_df["prevalence"], rank_mode)
 
     cmap = POSTER_CMAPS["teal_rose"]
     norm = Normalize(vmin=float(d["oof_prevalence"].min()), vmax=float(d["oof_prevalence"].max()))
@@ -534,8 +567,10 @@ def plot_metric_bars(
     cbar.set_label("Prevalence", fontsize=COLORBAR_LABEL_FS, rotation=270, labelpad=10)
     cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
 
-    ylabel = metric_label if rank_mode == "metric" else f"Normalized {metric_label}"
-    title_label = "Frangieh baseline per gene" if rank_mode == "metric" else f"Frangieh baseline (normalized {metric_label})"
+    ylabel = _BAR_YLABEL[rank_mode].format(metric_label)
+    title_label = "Frangieh baseline per gene" if rank_mode == "metric" else f"Frangieh baseline ({ylabel.replace('Normalized', 'normalized')})"
+    if rank_mode == "lift":
+        ax.axhline(1, color="0.4", ls=":", lw=1.0, zorder=1)  # chance
     ax.set_title(title_label, fontsize=TITLE_FS)
     ax.set_xlabel("", fontsize=AXIS_LABEL_FS)
     ax.set_ylabel(ylabel, fontsize=AXIS_LABEL_FS)
@@ -551,8 +586,7 @@ def plot_metric_bars(
     ax.grid(axis="y", alpha=0.22, zorder=1)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    suffix = rank_mode if rank_mode == "normalized" else "metric"
-    return _save(fig, out_dir / f"{output_prefix}_{metric_label.lower().replace(' ', '_')}_{suffix}_teal_rose_bar.pdf")
+    return _save(fig, out_dir / f"{output_prefix}_{metric_label.lower().replace(' ', '_')}_{rank_mode}_teal_rose_bar.pdf")
 
 
 def plot_ccle_multitask_gene_bars(
@@ -567,17 +601,14 @@ def plot_ccle_multitask_gene_bars(
 ) -> Path:
     df = pd.read_csv(metrics_csv)
     d = df[["gene", "fold", "prevalence", metric_col]].copy()
-    if rank_mode == "normalized":
-        d["plot_metric"] = normalized_auprc(d[metric_col], d["prevalence"])
-    else:
-        d["plot_metric"] = d[metric_col]
+    d["plot_metric"] = _bar_value(d[metric_col], d["prevalence"], rank_mode)
     d = d.dropna(subset=["plot_metric", "prevalence"])
-    summary = (
-        d.groupby("gene", as_index=False)
-        .agg(plot_value=("plot_metric", "mean"), prevalence_mean=("prevalence", "mean"))
-        .sort_values("plot_value", ascending=False)
-        .head(top_n)
-    )
+    summary = d.groupby("gene", as_index=False).agg(
+        plot_value=("plot_metric", "mean"), metric_mean=(metric_col, "mean"), prevalence_mean=("prevalence", "mean"))
+    if rank_mode == "lift":
+        # Mean AUPRC over mean prevalence: the mean of the fold ratios is blown up by folds with few mutated cell lines
+        summary["plot_value"] = summary["metric_mean"] / summary["prevalence_mean"]
+    summary = summary.sort_values("plot_value", ascending=False).head(top_n)
     order = summary["gene"].astype(str).tolist()
     fold_df = d[d["gene"].astype(str).isin(order)].copy()
 
@@ -597,8 +628,10 @@ def plot_ccle_multitask_gene_bars(
     cbar = fig.colorbar(sm, ax=ax, pad=0.015)
     cbar.set_label("Prevalence", fontsize=COLORBAR_LABEL_FS, rotation=270, labelpad=10)
     cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
-    ylabel = metric_label if rank_mode == "metric" else f"Normalized {metric_label}"
-    title_label = "CCLE multitask per gene" if rank_mode == "metric" else f"CCLE multitask (normalized {metric_label})"
+    ylabel = _BAR_YLABEL[rank_mode].format(metric_label)
+    title_label = "CCLE multitask per gene" if rank_mode == "metric" else f"CCLE multitask ({ylabel.replace('Normalized', 'normalized')})"
+    if rank_mode == "lift":
+        ax.axhline(1, color="0.4", ls=":", lw=1.0, zorder=1)  # chance
     ax.set_title(title_label, fontsize=TITLE_FS)
     ax.set_xlabel("", fontsize=AXIS_LABEL_FS)
     ax.set_ylabel(ylabel, fontsize=AXIS_LABEL_FS)
@@ -741,14 +774,7 @@ def build_head_weight_projection_tables(
     folds = folds or list(summary["folds"])  # type: ignore[arg-type]
 
     metrics = fold_metrics.copy()
-    if "gene" in metrics.columns:
-        metrics["gene"] = metrics["gene"].astype(str)
-    elif "gene_or_perturbation" in metrics.columns:
-        metrics = metrics.rename(columns={"gene_or_perturbation": "gene"})
-        metrics["gene"] = metrics["gene"].astype(str)
-    else:
-        metrics = metrics.reset_index().rename(columns={"index": "gene"})
-        metrics["gene"] = metrics["gene"].astype(str)
+    metrics["gene"] = metrics["gene"].astype(str)
 
     projections = {}
     for fold in sorted(map(int, folds)):
@@ -1186,16 +1212,7 @@ def build_fold_projection_tables(
         adata.obs["gene_or_perturbation"] = adata.obs["gene_or_perturbation"].astype(str)
         if fold_metrics is not None:
             fold_m = fold_metrics[fold_metrics["fold"].eq(fold)].drop(columns="fold", errors="ignore")
-            if "gene" in fold_m.columns:
-                fold_m = fold_m.copy()
-                fold_m["gene"] = fold_m["gene"].astype(str)
-                fold_m = fold_m.set_index("gene")
-            elif "gene_or_perturbation" in fold_m.columns:
-                fold_m = fold_m.copy()
-                fold_m["gene_or_perturbation"] = fold_m["gene_or_perturbation"].astype(str)
-                fold_m = fold_m.set_index("gene_or_perturbation")
-            else:
-                fold_m.index = fold_m.index.astype(str)
+            fold_m = fold_m.assign(gene=fold_m["gene"].astype(str)).set_index("gene")
             adata.obs = adata.obs.join(fold_m, on="gene_or_perturbation", how="left")
         adata.obs["gene_or_perturbation"] = adata.obs["gene_or_perturbation"].astype(str).astype("category")
         sc.pp.neighbors(adata, use_rep="X")

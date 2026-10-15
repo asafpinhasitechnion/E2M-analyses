@@ -122,6 +122,32 @@ def collapse_duplicate_columns(df: pd.DataFrame, method: str = "mean") -> pd.Dat
     raise ValueError("method must be 'mean' or 'sum'.")
 
 
+TCGA_ROOT = Path(__file__).resolve().parents[2] / "TCGA"
+# HGNC table for Entrez -> Ensembl IDs (2022-01, the earliest monthly archive available; IDs are stable across releases)
+HGNC_URL = "https://storage.googleapis.com/public-download-files/hgnc/archive/archive/monthly/tsv/hgnc_complete_set_2022-01-01.txt"
+
+
+def gencode_symbols() -> pd.Series:
+    """Ensembl gene ID (no version) -> GENCODE v36 symbol: the gene names of the TCGA data (E2M's annotation)."""
+    from e2m.data import XenaTCGALoader
+
+    return XenaTCGALoader(load_config(TCGA_ROOT / "config" / "e2m.yaml"), data_dir=TCGA_ROOT / "data")._load_annotation()["symbol"]
+
+
+def to_gencode(symbols, ensembl_ids) -> list:
+    """Each gene's GENCODE v36 symbol through its Ensembl ID, so genes renamed since the cohort was annotated
+    (e.g. MLL2 -> KMT2D) match TCGA; the given symbol where the ID is missing or not in GENCODE v36."""
+    v36 = gencode_symbols().to_dict()
+    ids = pd.Series(list(ensembl_ids), dtype=object).astype(str).str.split(".").str[0]
+    return [v36.get(i, s) for i, s in zip(ids, symbols)]
+
+
+def hgnc_table(data_dir: str | Path) -> pd.DataFrame:
+    """HGNC: symbol, previous symbols, Entrez and Ensembl gene IDs."""
+    path = fetch(HGNC_URL, Path(data_dir) / Path(HGNC_URL).name)
+    return pd.read_csv(path, sep="\t", usecols=["symbol", "prev_symbol", "entrez_id", "ensembl_gene_id"], dtype=str, low_memory=False)
+
+
 def sample_patient_id(sample_id: str) -> str:
     """Return the patient ID from an expression sample ID (e.g. Riaz `Pt1_Pre_AD101148-6`)."""
     return str(sample_id).split("_")[0].split(".")[0]
@@ -242,34 +268,6 @@ def ensembl_to_symbols(
     return [mapping.get(ensembl_id) for ensembl_id in ensembl_ids]
 
 
-HEAD_AND_NECK = ("larynx", "tongue", "mouth", "lip", "gum", "oropharynx", "pharynx", "tonsil")
-CPTAC_TYPE_BY_SITE = {"Uterus, NOS": "UCEC", "Breast": "BRCA", "Stomach": "STAD", "Pancreas": "PAAD", "Colon": "COAD", "Prostate gland": "PRAD"}
-
-
-def cptac_tumour_type(site, diagnosis) -> str:
-    """TCGA-style tumour type from GDC primary site + primary diagnosis (GDC has no such code for CPTAC/CMI).
-
-    Lung and kidney are split by histology; all head-and-neck sites are HNSC; serous carcinomas of the ovary,
-    genital tract and peritoneum are OV; breast and pancreas cases without a diagnosis go by site; AML is LAML.
-    """
-    site, dx = str(site), str(diagnosis).lower()
-    if "myeloid leukemia" in dx:
-        return "LAML"
-    if site == "Bronchus and lung":
-        return "LUSC" if "squamous" in dx else "LUAD" if "adenocarcinoma" in dx else "Other"
-    if site == "Kidney":
-        return {"renal cell carcinoma, nos": "KIRC", "papillary renal cell carcinoma": "KIRP", "renal cell carcinoma, chromophobe type": "KICH"}.get(dx, "Other")
-    if site == "Brain":
-        return "GBM" if ("glioblastoma" in dx or "gliosarcoma" in dx) else "LGG" if ("glioma" in dx or "astrocytoma" in dx) else "Other"
-    if "squamous" in dx and any(k in site.lower() for k in HEAD_AND_NECK):
-        return "HNSC"
-    if "serous" in dx:
-        return "OV"
-    if "in situ" in dx:
-        return "Other"
-    return CPTAC_TYPE_BY_SITE.get(site, "Other")
-
-
 def load_cptac_cmi_data(
     data_dir: str | Path,
     *,
@@ -354,10 +352,17 @@ def load_cptac_cmi_data(
     })
     per_case["OS_time"] = per_case["death"].where(per_case["OS_event"].eq(1), per_case["follow_up"])
     per_case["PFS_time"] = per_case["recurrence"].where(per_case["PFS_event"].eq(1), per_case["follow_up"])
-    per_case["cancer"] = [cptac_tumour_type(site, dx) for site, dx in zip(per_case["cases.primary_site"], per_case["diagnosis"])]
 
     clinical = patients[["sample_id", "sample_type", "descriptor", "match", "wes_variants"]].join(
         per_case.drop(columns=["death", "follow_up", "recurrence"]))
+
+    # Solid tumours only: acute myeloid leukaemia (CPTAC-3, the only blood cancer here) is left out
+    solid = clinical.index[~clinical["diagnosis"].str.contains("myeloid leukemia", case=False, na=False)]
+    n_non_solid = len(clinical) - len(solid)
+    patients, clinical, expression = patients.loc[solid], clinical.loc[solid], expression.loc[solid]
+    profiled = profiled.intersection(solid)
+    mutation_binary = mutation_binary.loc[profiled]
+    mutation_binary = mutation_binary.loc[:, mutation_binary.any()]
     metadata = {
         "data_dir": str(data_dir),
         "expression_file": expression_file,
@@ -366,6 +371,7 @@ def load_cptac_cmi_data(
         "n_tumour_rna_samples": int(len(rna_rows)),
         "n_maf_files": int(len(mafs)),
         "n_patients": int(len(patients)),
+        "n_non_solid_removed": int(n_non_solid),
         "match_counts": patients["match"].value_counts().to_dict(),
         "n_expression_features": int(expression.shape[1]),
         "n_observed_mutated_genes": int(mutation_binary.shape[1]),
@@ -374,6 +380,20 @@ def load_cptac_cmi_data(
 
 
 IMMUNOPOG_URL = "https://www.bcgsc.ca/downloads/immunoPOG/"
+
+
+def recist_only(best) -> pd.Series:
+    """Best response as CR/PR/SD/PD; any other label (mixed, not evaluable) -> missing."""
+    best = pd.Series(best).astype("string")
+    return best.where(best.isin(["CR", "PR", "SD", "PD"]))
+
+
+def immunopog_best_response(best: pd.Series) -> pd.Series:
+    """ImmunoPOG best response as CR/PR/SD/PD: the file writes it out in free text ("Progressive disease", "Physician
+    assessed PD", ...; case and spaces vary), radiological and physician-assessed alike. Not evaluable and mixed -> NaN."""
+    text = best.astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True).str.replace("physician assessed ", "")
+    return text.map({"complete response": "CR", "partial response": "PR", "stable disease": "SD", "progressive disease": "PD",
+                     "cr": "CR", "pr": "PR", "sd": "SD", "pd": "PD"})
 
 
 def load_immunopog_data(
@@ -389,13 +409,18 @@ def load_immunopog_data(
     mutations = pd.read_csv(fetch(IMMUNOPOG_URL + "ImmunoPOG_coding_mutations.txt.gz", data_dir / "ImmunoPOG_coding_mutations.txt.gz"), sep="\t")
     clinical_raw = pd.read_excel(data_dir / clinical_file)
 
-    # Expression: genes by symbol (duplicate symbols summed).
+    # Expression: genes by the file's symbol (duplicate symbols summed). Not renamed to GENCODE v36: for 1,379 rows the
+    # Ensembl ID now names a gene that has its own row, so renaming merges genes, and prediction was clearly worse.
     expression = collapse_duplicate_columns(counts.drop(columns="Ensembl_ID").set_index("HGNC_name").T.astype(float), method="sum")
     expression.index = expression.index.astype(str)
     expression.index.name = "sample"
 
     # Mutations: every patient in the file was sequenced; genes with a coding call (one patient has two tumour libraries, combined).
     mutations["patient_id"] = mutations["patient_id"].astype(str)
+    # Mutations use older symbols than the TCGA targets (e.g. MLL2 for KMT2D, ODZ3 for TENM3): mapped to GENCODE v36 through
+    # the expression file's symbol -> Ensembl ID pairs, so these targets get their real labels
+    unique_names = counts[~counts["HGNC_name"].duplicated(keep=False)].set_index("HGNC_name")["Ensembl_ID"]
+    mutations["gene_id"] = to_gencode(mutations["gene_id"], mutations["gene_id"].map(unique_names))
     profiled = pd.Index(mutations["patient_id"].unique())
     if coding_only:
         mutations = mutations[mutations["consequence_type"].map(is_coding_consequence)]
@@ -415,11 +440,13 @@ def load_immunopog_data(
         "OS_event": raw["Alive_0"],
         "PFS_time": raw["Time to progression (days)"],
         "PFS_event": raw["Progression_1"],
-        "Full_response": raw["Best response"],
+        "Full_response": immunopog_best_response(raw["Best response"]),
         "Response": raw["Clinical benefit"].map({"DCB": "R", "NCB": "NR"}),
         "TMB_exome": raw["Exome mut per mb"],
         "TMB_genome": raw["Genome mut per mb"],
     })
+    # Solid tumours only: the one lymphoma (LYMP) is left out
+    clinical = clinical[clinical["Cancer"].ne("LYMP")]
     common = expression.index.intersection(clinical.index)
 
     metadata = {
@@ -456,21 +483,38 @@ def load_metabric_data(data_dir: str | Path, *, coding_only: bool = True) -> tup
     panel_file = fetch(METABRIC_URL + "reference_data/gene_panels/data_gene_panel_metabric_173.txt", data_dir / "data_gene_panel_metabric_173.txt")
     panel_genes = next(line for line in panel_file.read_text().splitlines() if line.startswith("gene_list:")).split()[1:]
 
+    # Gene names: cBioPortal's are older (e.g. MLL2 for KMT2D). Entrez IDs (expression, MAF) and symbols or previous
+    # symbols (panel) -> Ensembl IDs (HGNC) -> GENCODE v36 symbols, as in the TCGA data.
+    hgnc = hgnc_table(data_dir.parent)
+    ensembl_of_entrez = hgnc.dropna(subset=["entrez_id", "ensembl_gene_id"]).set_index("entrez_id")["ensembl_gene_id"]
+    entrez = lambda ids: pd.to_numeric(ids, errors="coerce").astype("Int64").astype(str).map(ensembl_of_entrez)
+    previous = hgnc.dropna(subset=["prev_symbol", "ensembl_gene_id"]).assign(prev_symbol=lambda h: h["prev_symbol"].str.split("|")).explode("prev_symbol")
+    previous = previous[~previous["prev_symbol"].duplicated(keep=False)]  # previous symbols of one gene only
+    ensembl_of_symbol = {**previous.set_index("prev_symbol")["ensembl_gene_id"].to_dict(),
+                         **hgnc.dropna(subset=["ensembl_gene_id"]).set_index("symbol")["ensembl_gene_id"].to_dict()}
+    panel_genes = to_gencode(panel_genes, [ensembl_of_symbol.get(g) for g in panel_genes])
+
     # Expression: genes by symbol (duplicate symbols averaged).
-    expression = collapse_duplicate_columns(expression_raw.drop(columns="Entrez_Gene_Id").set_index("Hugo_Symbol").T.astype(float))
+    symbols = to_gencode(expression_raw["Hugo_Symbol"], entrez(expression_raw["Entrez_Gene_Id"]))
+    expression = collapse_duplicate_columns(expression_raw.drop(columns=["Entrez_Gene_Id", "Hugo_Symbol"]).set_axis(symbols).T.astype(float))
     expression.index.name = "sample"
 
-    # Clinical: sample and patient tables; OS months -> days.
+    # Clinical: sample and patient tables; OS and relapse-free survival (RFS; no PFS in METABRIC) months -> days.
     clinical = sample.merge(patient, on="PATIENT_ID", how="left").set_index("SAMPLE_ID")
     clinical.index.name = "sample"
     clinical["OS_event"] = clinical["OS_STATUS"].str.split(":").str[0].astype(float)
     clinical["OS_time"] = clinical["OS_MONTHS"] * 30.4375
+    clinical["RFS_event"] = clinical["RFS_STATUS"].str.split(":").str[0].astype(float)
+    clinical["RFS_time"] = clinical["RFS_MONTHS"] * 30.4375
     common = expression.index.intersection(clinical.index)
 
     # Mutations: samples sequenced with the panel; genes with a coding call.
     profiled = pd.Index(panel_matrix.loc[panel_matrix["mutations"].eq("METABRIC_173"), "SAMPLE_ID"])
     if coding_only:
         maf = maf[maf["Variant_Classification"].isin(CODING_VARIANT_CLASSIFICATIONS)]
+    # The MAF has no Entrez IDs (all empty): its symbols are mapped like the panel's
+    maf_ids = entrez(maf["Entrez_Gene_Id"]).fillna(maf["Hugo_Symbol"].map(ensembl_of_symbol))
+    maf = maf.assign(Hugo_Symbol=to_gencode(maf["Hugo_Symbol"], maf_ids))
     mutation_binary = pd.crosstab(maf["Tumor_Sample_Barcode"], maf["Hugo_Symbol"]).gt(0).reindex(index=profiled, columns=panel_genes, fill_value=False).astype("int8")
     mutation_binary.index.name = "sample"
 
@@ -674,7 +718,7 @@ def load_liu_data(
     clinical["PFS_event"] = pd.to_numeric(clinical_raw["progressed"], errors="coerce").to_numpy()
     clinical["Age"] = pd.to_numeric(clinical_raw["Age"], errors="coerce").to_numpy()
     clinical["Gender"] = clinical_raw["gender (Male=1, Female=0)"].replace({1: "M", 0: "F"}).to_numpy()
-    clinical["Full_response"] = clinical_raw["BR"].astype("string").to_numpy()
+    clinical["Full_response"] = recist_only(clinical_raw["BR"]).to_numpy()  # MR (mixed) -> missing
     clinical["Response"] = (
         clinical_raw["BR"]
         .replace({"CR": "R", "PR": "R", "MR": "R", "SD": "NR", "PD": "NR"})
@@ -740,7 +784,7 @@ def load_riaz_data(data_dir: str | Path, *, coding_only: bool = True) -> tuple[p
     clinical_patient = pd.DataFrame({
         "Cohort": patients["Cohort"],
         "Subtype": patients["SubtypeEZ"],
-        "Full_response": patients["BOR"],
+        "Full_response": recist_only(patients["BOR"]),  # NE (not evaluable) -> missing
         "Response": patients["BOR"].map({"CR": "R", "PR": "R", "SD": "NR", "PD": "NR"}),
         "OS_time": patients["OS"], "OS_event": 1 - patients["OS_SOR"],
         "PFS_time": patients["PFS"], "PFS_event": 1 - patients["PFS_SOR"],
@@ -825,6 +869,7 @@ def load_van_allen_data(
     clinical["PFS_event"] = pd.to_numeric(clinical_raw["progression"], errors="coerce")
     clinical["Full_response"] = clinical_raw["RECIST"].astype("string")
     clinical["Response"] = clinical["Full_response"].replace({"CR": "R", "PR": "R", "SD": "NR", "PD": "NR"})
+    clinical["Full_response"] = recist_only(clinical["Full_response"])  # X (not evaluable) -> missing
     mask_x = clinical["Response"].astype("string") == "X"
     if mask_x.any():
         clinical.loc[mask_x, "Response"] = clinical_raw.loc[mask_x, "group"].replace({"response": "R", "nonresponse": "NR"}).values

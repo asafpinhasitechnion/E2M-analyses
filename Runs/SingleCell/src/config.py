@@ -18,7 +18,6 @@ PLOT_INPUTS_DIR: Path = RUN_ROOT / "output" / "plot_inputs"
 
 RANDOM_STATE: int = int(_cfg["random_state"])
 CV_FOLDS: int = int(_cfg["cv_folds"])
-MULTITASK_PRESET: str = _cfg["multitask_preset"]
 PREPROCESS_TARGET_SUM: float = float(_cfg["preprocess_target_sum"])
 
 DATASET_FILES: dict[str, str] = dict(_cfg["dataset_files"])

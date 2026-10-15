@@ -7,11 +7,17 @@ tcga:
   config: ../TCGA/config/e2m.yaml
   data_dir: ../TCGA/data
 
+# TCGA-cohort integrations before XGBoost (src/run_drivers.py integrate: combat | sample_rank).
+# Each is run; the first is the main result (output/), the others go to output/integration_<method>/, and
+# output/summary/integration_comparison.csv/.xlsx puts their per-target metrics side by side.
+integrations: [combat, sample_rank]
+
 xgboost:
   n_estimators: 300
   learning_rate: 0.1
   random_state: 42
   n_jobs: -1
+  device: cuda                  # as in Runs/TCGA; GPU trees differ slightly from CPU trees
 
 target_selection:
   min_tcga_positive: 3
@@ -36,9 +42,9 @@ cohorts:
     drivers: PAAD
     tcga_cancers: [PAAD]
     tcga_expression_measure: tpm
-    external_expression_type: RNA-seq V2 RSEM continuous
+    external_expression_type: RNA-seq V2 RSEM continuous, already on a log scale (-12 to 18)
     log1p_tcga: true
-    log1p_external: true
+    log1p_external: false
 
   luad_cas_2020:
     label: CAS LUAD 2020
@@ -69,6 +75,7 @@ cohorts:
     external_expression_type: RNA-seq TPM
     log1p_tcga: true
     log1p_external: true
+    # 355 RNA samples of 169 patients (primary and up to three recurrences); samples of TCGA patients are left out
 
   metabric:
     source: brca_metabric
@@ -97,9 +104,9 @@ cohorts:
     drivers: LUAD
     tcga_cancers: [LUAD]
     tcga_expression_measure: tpm
-    external_expression_type: GPL570 Affymetrix microarray
+    external_expression_type: GPL570 Affymetrix microarray, linear intensities (up to 5e4)
     log1p_tcga: true
-    log1p_external: false
+    log1p_external: true
 
   # POG570 is pan-cancer; each split uses the matching TCGA cancer type.
   pog570_bcgsc_2020__BRCA:
@@ -124,7 +131,8 @@ cohorts:
     external_expression_type: RNA-seq RPKM
     log1p_tcga: true
     log1p_external: true
-    filter: {column: ANALYSIS_COHORT, values: [COLO]}
+    # anal squamous cell carcinomas and neuroendocrine tumours are not colorectal adenocarcinomas: left out
+    filter: {column: ANALYSIS_COHORT, values: [COLO], exclude: {column: ONCOTREE_CODE, values: [ANSC, HGNEC, SBWDNET]}}
 
   pog570_bcgsc_2020__LUAD:
     source: pog570_bcgsc_2020
@@ -149,15 +157,4 @@ cohorts:
     log1p_tcga: true
     log1p_external: true
     filter: {column: ONCOTREE_CODE, values: [PAAD]}
-
-  pog570_bcgsc_2020__CHOL:
-    source: pog570_bcgsc_2020
-    label: POG570 cholangiocarcinoma
-    cancer: cholangiocarcinoma
-    drivers: CHOL
-    tcga_cancers: [CHOL]
-    tcga_expression_measure: tpm
-    external_expression_type: RNA-seq RPKM
-    log1p_tcga: true
-    log1p_external: true
-    filter: {column: ANALYSIS_COHORT, values: [CHOL]}
+  # POG570 cholangiocarcinoma is not used: 14 samples, no driver testable (too few mutated samples in POG570 and TCGA).

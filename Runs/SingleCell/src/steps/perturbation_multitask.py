@@ -8,8 +8,9 @@ import scanpy as sc
 
 import config
 from datasets.adamson import ADAMSON_CONTROL_LABELS, ADAMSON_PERTURBATION_TO_GENES
+from datasets.labels import frangieh_single_guide, mcfarland_trametinib
 from models.multitask import infer_cell_line_name, run_multitask_benchmark
-from models.presets import MODEL_PRESETS
+from models.presets import MODEL_PARAMS, RUN_NAME
 
 
 # Each RUN: dict with keys
@@ -19,6 +20,8 @@ from models.presets import MODEL_PRESETS
 #   gene_col                  : None -> auto-detect from GENE_COL_CANDIDATES
 #   control_labels            : labels treated as negative controls (default = generic scPerturb)
 #   perturbation_to_genes     : optional construct -> [genes] map (multi-label mode; Adamson)
+#   relabel                   : optional function fixing per-cell labels (datasets/labels.py)
+#   keep                      : optional {obs column: values to keep} cell filter
 #   targets                   : optional perturbations to keep, with the controls
 # First column present in obs is used; the scPerturb files used here carry 'perturbation'.
 GENE_COL_CANDIDATES = ("gene", "perturbation", "target_gene", "perturbed_gene")
@@ -40,10 +43,13 @@ RUNS = [
     _adamson_run("adamson_10X001"),
     _adamson_run("adamson_10X005"),
     _adamson_run("adamson"),
-    {"key": "mcfarland",     "min_cells_per_gene": 300, "cv_group_col": "cell_line"},
+    # McFarland: the authors' cell QC (obs cell_quality: doublets, empty droplets, low quality) -> normal cells only
+    {"key": "mcfarland",     "min_cells_per_gene": 300, "cv_group_col": "cell_line", "keep": {"cell_quality": ["normal"]},
+     "relabel": mcfarland_trametinib},   # trametinib time course: cell-hashed DMSO/untreated cells -> control
     {"key": "replogle_k562", "min_cells_per_gene": 300},
     {"key": "replogle_rpe1", "min_cells_per_gene": 300},
-    {"key": "frangieh",      "min_cells_per_gene": 800, "condition_col": "perturbation_2"},
+    {"key": "frangieh",      "min_cells_per_gene": 300, "condition_col": "perturbation_2",
+     "relabel": frangieh_single_guide},   # single-guide cells, as the authors (about 500 cells per gene)
     # Zhao: the other four drugs were each given in one sample only, so CV grouped by sample cannot train and test them.
     {"key": "zhao",          "min_cells_per_gene": 300, "cv_group_col": "sample",
      "targets": ("etoposide", "panobinostat")},
@@ -80,7 +86,7 @@ def _resolve_gene_col(adata, file_name: str, requested: str | None) -> str:
     )
 
 
-def _run_one(run: dict, preset: str) -> None:
+def _run_one(run: dict) -> None:
     file_name = config.DATASET_FILES[run["key"]]
     min_cells_per_gene = int(run["min_cells_per_gene"])
     cv_group_col = run.get("cv_group_col")
@@ -95,6 +101,12 @@ def _run_one(run: dict, preset: str) -> None:
         return
 
     adata = sc.read_h5ad(data_path)
+    for column, values in run.get("keep", {}).items():  # cell filters from obs (e.g. the authors' QC)
+        n_before = adata.n_obs
+        adata = adata[adata.obs[column].astype(str).isin(values)].copy()
+        print(f"  [multitask] {file_name}: kept {adata.n_obs} of {n_before} cells with {column} in {values}")
+    if run.get("relabel"):  # per-cell labels where scPerturb's perturbation column is not the cell's perturbation
+        adata = run["relabel"](adata)
     sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
     sc.pp.log1p(adata)
 
@@ -114,15 +126,14 @@ def _run_one(run: dict, preset: str) -> None:
         )
 
     stem = data_path.stem
-    run_name = f"{stem}_mc{min_cells_per_gene}_{preset}"
+    run_name = f"{stem}_mc{min_cells_per_gene}_{RUN_NAME}"
     if cv_group_col is not None:
         safe = cv_group_col.replace("/", "_")
         run_name = f"{run_name}_cvgrp_{safe}"
     if stem.startswith("AdamsonWeissman2016"):
         run_name = f"admason_{run_name}"
 
-    model_params = dict(MODEL_PRESETS[preset])
-    non_target_subsample = model_params.pop("non_target_subsample", None)
+    model_params = dict(MODEL_PARAMS)
 
     print(f"[multitask] {run_name} | cells={adata.n_obs}")
     run_multitask_benchmark(
@@ -133,7 +144,6 @@ def _run_one(run: dict, preset: str) -> None:
         gene_col=gene_col,
         min_cells_per_gene=min_cells_per_gene,
         control_labels=control_labels,
-        non_target_subsample=non_target_subsample,
         cv_group_col=cv_group_col,
         n_splits=config.CV_FOLDS,
         random_state=config.RANDOM_STATE,
@@ -153,4 +163,4 @@ def main() -> None:
     for run in RUNS:
         if selected_keys is not None and run["key"] not in selected_keys:
             continue
-        _run_one(run=run, preset=config.MULTITASK_PRESET)
+        _run_one(run=run)

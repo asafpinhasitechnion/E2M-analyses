@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import config
 from datasets.tian import run_one_file
+from models.presets import RUN_NAME
 
 
 FILE_NAME = "TianKampmann2021_CRISPRa.h5ad"
@@ -31,7 +32,7 @@ def main() -> None:
         guide_col=GUIDE_COL,
         control_labels=CONTROL_LABELS,
         min_cells_per_guide=MIN_CELLS_PER_GUIDE,
-        preset=config.MULTITASK_PRESET,
+        preset=RUN_NAME,
         seed=config.RANDOM_STATE,
         preprocess_target_sum=config.PREPROCESS_TARGET_SUM,
     )

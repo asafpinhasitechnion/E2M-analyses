@@ -5,7 +5,7 @@ Usage (from this folder):
     python run_all.py --normalization none   # everything, TCGA counts without CPM (log1p of counts)
     python run_all.py external singlecell    # selected parts, in this order
 
---normalization picks the run variant: TCGA and External write to output/cpm or output/counts, and the figures and
+--normalization picks the run variant: TCGA and External write to output/ (CPM) or output/counts/, and the figures and
 tables of that variant read them. Clinical drivers and single-cell do not depend on it. Figure 4 and the tables are
 made once per External method in --external-methods ("main" = each cohort's first method in the External config).
 """

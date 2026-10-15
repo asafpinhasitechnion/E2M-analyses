@@ -47,8 +47,11 @@ def _any(text: pd.Series, tokens: list[str]) -> pd.Series:
 
 
 def _masks(gene: pd.Series, text: pd.Series, start: pd.Series) -> dict[str, pd.Series]:
-    inframe_ins = _any(text, ["IN_FRAME_INS", "INS", "DUP"]) & ~_any(text, ["DELINS", "DEL"])
-    deletion = _any(text, ["IN_FRAME_DEL", "DEL", "DELINS"])
+    # Frameshifts and stop-gains are not activating: "DEL"/"INS" also match inside Frame_Shift_Del/Ins, and a
+    # truncating change at an activating codon (e.g. ERBB2 p.L755*) is not the activating alteration
+    truncating = _any(text, ["FRAME_SHIFT", "NONSENSE", r"\*"])
+    inframe_ins = _any(text, ["IN_FRAME_INS", "INS", "DUP"]) & ~_any(text, ["DELINS", "DEL"]) & ~truncating
+    deletion = _any(text, ["IN_FRAME_DEL", "DEL", "DELINS"]) & ~truncating
 
     egfr = gene.eq("EGFR")
     egfr_ex19del = egfr & deletion & (_any(text, ["E746", "L747", "T751", "S752", "P753"]) | start.between(55242400, 55242560))
@@ -63,7 +66,7 @@ def _masks(gene: pd.Series, text: pd.Series, start: pd.Series) -> dict[str, pd.S
     pik3ca = gene.eq("PIK3CA")
     erbb2 = gene.eq("ERBB2")
     erbb2_tkd = erbb2 & (
-        _any(text, ["Y772", "G776", "D769", "V777", "L755", "ALA775", "TYR772", "GLY776", "ASP769", "VAL777", "LEU755"])
+        (_any(text, ["Y772", "G776", "D769", "V777", "L755", "ALA775", "TYR772", "GLY776", "ASP769", "VAL777", "LEU755"]) & ~truncating)
         | (inframe_ins & _any(text, ["Y772", "A775", "G776", "V777", "D769", "P780"]))
     )
     met_ex14 = gene.eq("MET") & text.str.contains("SPLICE", regex=False, na=False) & (

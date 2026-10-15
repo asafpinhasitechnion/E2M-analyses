@@ -2,8 +2,7 @@
 
 Methods (TCGA is always one batch):
 - none: each side is log-transformed on its own, sample by sample (CPM + log1p for counts); no cohort-level step.
-- combat / combat_ref: ComBat (inmoose pycombat_norm) on the log values, jointly or with TCGA as the reference batch.
-- combat_seq / combat_seq_ref: ComBat-seq on raw counts, jointly or with TCGA as the reference batch, then CPM + log1p.
+- combat: ComBat (inmoose pycombat_norm) on the log values of TCGA and the cohort together.
 - rank: each gene is ranked across samples within each side separately and scaled to (0, 1].
 - sample_rank: each sample's genes are ranked within that sample and scaled to (0, 1]; sample by sample, no cohort-level step.
 """
@@ -13,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-METHODS = ("none", "combat", "combat_ref", "combat_seq", "combat_seq_ref", "rank", "sample_rank")
+METHODS = ("none", "combat", "rank", "sample_rank")
 SCALES = ("counts", "tpm", "log")
 
 
@@ -34,7 +33,7 @@ def _batches(tcga: pd.DataFrame, external: pd.DataFrame, external_batches: pd.Se
     return pd.concat([pd.Series("TCGA", index=tcga.index), ext.astype(str)]).rename("batch")
 
 
-def _combat(combined: pd.DataFrame, batch: pd.Series, ref_batch: str | None) -> pd.DataFrame:
+def _combat(combined: pd.DataFrame, batch: pd.Series) -> pd.DataFrame:
     from inmoose.pycombat import pycombat_norm
 
     keep = combined.var(axis=0, ddof=0) > 0
@@ -43,20 +42,8 @@ def _combat(combined: pd.DataFrame, batch: pd.Series, ref_batch: str | None) -> 
         if len(rows) >= 2:
             keep &= combined.loc[rows].var(axis=0, ddof=0) > 0
     combined = combined.loc[:, keep]
-    corrected = pycombat_norm(counts=combined.T.to_numpy(dtype=np.float64), batch=batch.to_numpy(), ref_batch=ref_batch)
+    corrected = pycombat_norm(counts=combined.T.to_numpy(dtype=np.float64), batch=batch.to_numpy())
     return pd.DataFrame(np.asarray(corrected).T, index=combined.index, columns=combined.columns)
-
-
-def _combat_seq(combined: pd.DataFrame, batch: pd.Series, ref_batch: str | None) -> pd.DataFrame:
-    from inmoose.pycombat import pycombat_seq
-
-    counts = combined.clip(lower=0).round().astype(np.int64)
-    keep = pd.Series(True, index=counts.columns)
-    for name in batch.unique():
-        keep &= counts.loc[batch.index[batch == name]].sum(axis=0) > 0
-    counts = counts.loc[:, keep]
-    corrected = pycombat_seq(counts=counts.T.to_numpy(), batch=batch.to_numpy(), ref_batch=ref_batch)
-    return pd.DataFrame(np.asarray(corrected).T, index=counts.index, columns=counts.columns).clip(lower=0)
 
 
 def _rank(df: pd.DataFrame) -> pd.DataFrame:
@@ -79,21 +66,15 @@ def integrate(
     shared = tcga.columns.intersection(external.columns).sort_values()
     tcga, external = tcga[shared].fillna(0.0), external[shared].fillna(0.0)
     batch = _batches(tcga, external, external_batches)
-    ref = "TCGA" if method.endswith("_ref") else None
 
-    if method.startswith("combat_seq"):
-        if tcga_scale != "counts" or external_scale != "counts":
-            raise ValueError("combat_seq needs raw counts on both sides.")
-        combined = to_log(_combat_seq(pd.concat([tcga, external]), batch, ref), "counts", cpm)
-    else:
-        tcga, external = to_log(tcga, tcga_scale, cpm), to_log(external, external_scale, cpm)
-        if method == "none":
-            return tcga, external
-        if method == "rank":
-            return _rank(tcga), _rank(external)
-        if method == "sample_rank":
-            return _rank(tcga.T).T, _rank(external.T).T
-        combined = _combat(pd.concat([tcga, external]), batch, ref)
+    tcga, external = to_log(tcga, tcga_scale, cpm), to_log(external, external_scale, cpm)
+    if method == "none":
+        return tcga, external
+    if method == "rank":
+        return _rank(tcga), _rank(external)
+    if method == "sample_rank":
+        return _rank(tcga.T).T, _rank(external.T).T
+    combined = _combat(pd.concat([tcga, external]), batch)
     return combined.loc[tcga.index], combined.loc[external.index]
 
 

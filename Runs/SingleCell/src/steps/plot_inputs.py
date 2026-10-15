@@ -60,7 +60,7 @@ BUNDLE: List[tuple] = [
     ),
     (
         "Frangieh",
-        "FrangiehIzar2021_RNA_mc800_simple_wide_run",
+        "FrangiehIzar2021_RNA_mc300_simple_wide_run",
         [
             "metric_summary_per_gene_folds.csv",
             "metric_summary_per_gene_by_condition.csv",
@@ -69,7 +69,7 @@ BUNDLE: List[tuple] = [
     ),
     (
         "Frangieh_per_gene",
-        "FrangiehIzar2021_RNA_per_gene_mc800_baseline",
+        "FrangiehIzar2021_RNA_per_gene_mc300_baseline",
         [
             "metric_summary_per_gene.csv",
             "metric_summary_per_gene_folds.csv",
@@ -101,8 +101,8 @@ BUNDLE: List[tuple] = [
             "cell_level_xgboost.csv",
             "model_level_xgboost.csv",
             "meta_xgboost.csv",
-            "multitask_fold_metrics_150.csv",
-            "multitask_summary_150.csv",
+            "multitask_fold_metrics_200.csv",
+            "multitask_summary_200.csv",
         ],
     ),
 ]

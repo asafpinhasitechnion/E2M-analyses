@@ -377,34 +377,6 @@ class MultiTaskConfig:
     gradient_clip_norm: float = 1.0
     early_stopping_metric: str = "val_loss"  # one of {"val_loss", "val_auprc", "val_roc_auc"}
     decision_threshold: float = 0.5
-    input_scaling: str = "none"  # one of {"none", "zscore"}
-    scaling_eps: float = 1e-6
-
-
-def _fit_zscore_scaler(X: np.ndarray, eps: float = 1e-6):
-    mean = X.mean(axis=0, keepdims=True).astype(np.float32)
-    std = X.std(axis=0, keepdims=True).astype(np.float32)
-    std = np.maximum(std, np.float32(eps))
-    return mean, std
-
-
-def _apply_input_scaling(
-    X_train_split: np.ndarray,
-    X_val_split: np.ndarray,
-    X_valid: np.ndarray,
-    cfg: MultiTaskConfig,
-):
-    mode = str(cfg.input_scaling).lower()
-    if mode in {"none", ""}:
-        return X_train_split, X_val_split, X_valid
-    if mode == "zscore":
-        mean, std = _fit_zscore_scaler(X_train_split, eps=cfg.scaling_eps)
-        return (
-            ((X_train_split - mean) / std).astype(np.float32),
-            ((X_val_split - mean) / std).astype(np.float32),
-            ((X_valid - mean) / std).astype(np.float32),
-        )
-    raise ValueError("input_scaling must be one of {'none', 'zscore'}")
 
 
 def _build_model(input_dim: int, output_dim: int, cfg: MultiTaskConfig, device: torch.device):
@@ -513,13 +485,6 @@ def _fit_one_fold(
         test_size=cfg.val_split,
         random_state=random_state,
         shuffle=True,
-    )
-
-    x_tr, x_val, X_valid = _apply_input_scaling(
-        X_train_split=x_tr,
-        X_val_split=x_val,
-        X_valid=X_valid,
-        cfg=cfg,
     )
 
     best_state = None
@@ -979,8 +944,6 @@ def run_multitask_benchmark(
             "use_pos_weight": cfg.use_pos_weight,
             "positive_label_bias": cfg.positive_label_bias,
             "decision_threshold": cfg.decision_threshold,
-            "input_scaling": cfg.input_scaling,
-            "scaling_eps": cfg.scaling_eps,
         },
         "artifacts": {
             "head_weights_per_fold": "head_weights_per_fold.csv",

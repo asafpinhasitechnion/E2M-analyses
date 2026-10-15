@@ -1,7 +1,7 @@
 """Build Supplementary Tables S1-S4 from the run and figure outputs.
 
 Run after the Runs/ pipelines and the Figure 1, 4 and 5 notebooks. Writes one workbook per table to
-Tables/output/<variant>/<method>/, for the run variant and External method of Figures/constants.py
+Tables/output/<method>/ (Tables/output/counts/<method>/ for the variant without CPM), for the run variant and External method of Figures/constants.py
 (E2M_NORMALIZATION, E2M_EXTERNAL_METHOD).
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ from statsmodels.stats.multitest import multipletests
 
 ROOT = Path(__file__).resolve().parents[1]
 # Run variant and External method, as in Figures/constants.py
-VARIANT = "cpm" if os.environ.get("E2M_NORMALIZATION", "cpm") == "cpm" else "counts"
+VARIANT = "" if os.environ.get("E2M_NORMALIZATION", "cpm") == "cpm" else "counts"
 EXTERNAL_METHOD = os.environ.get("E2M_EXTERNAL_METHOD") or None
 METHOD_LABEL = EXTERNAL_METHOD or "main"
 FIG1 = ROOT / "Figures" / "Figure1" / "output" / VARIANT / "Supplemental"
@@ -214,22 +214,30 @@ def table_s3() -> dict[str, pd.DataFrame]:
         "degrees_of_freedom", "p_value", "p_fdr", "status",
     ])
 
-    # S3e: clustering parameters used for the Figure 4 panels
+    # S3e: clustering parameters used for the Figure 4 panels (the over-clustering rule of figure4_helpers)
+    rule = {node.targets[0].id: ast.literal_eval(node.value)
+            for node in ast.parse((ROOT / "Figures" / "Figure4" / "figure4_helpers.py").read_text(encoding="utf-8")).body
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in ("MAX_MUTATION_CLUSTERS", "OVERCLUSTERED_MUTATION_NN", "MIN_OTHER_CLUSTER_SHARE")}
+    MUTATION_RULE = (f"if more than {rule['MAX_MUTATION_CLUSTERS']} clusters: n_neighbors {rule['OVERCLUSTERED_MUTATION_NN']}, "
+                     f"clusters under {rule['MIN_OTHER_CLUSTER_SHARE']:.0%} of the samples grouped as 'other'")
     tcga, cptac_default, external = _notebook_params()
     params = []
     for cancer in TCGA_PARAM_CANCERS:
         p = tcga[cancer]
         for rep, nn, res in (("expression", "expr_nn", "expr_leiden_res"), ("embedding", "emb_nn", "emb_leiden_res"),
                              ("mutation_profile", "mut_nn", "mut_leiden_res")):
-            params.append(("TCGA", cancer, rep, p[nn], p.get("mut_min_dist", 0.3) if rep == "mutation_profile" else 0.3, p[res]))
+            params.append(("TCGA", cancer, rep, p[nn], p.get("mut_min_dist", 0.3) if rep == "mutation_profile" else 0.3, p[res],
+                           MUTATION_RULE if rep == "mutation_profile" else ""))
     for rep, key in (("embedding", "emb"), ("expression", "expr")):
         params.append(("CPTAC/CMI (per site)", "all sites (default)", rep, cptac_default[f"{key}_nn"],
-                       cptac_default[f"{key}_min_dist"], cptac_default[f"{key}_leiden_res"]))
+                       cptac_default[f"{key}_min_dist"], cptac_default[f"{key}_leiden_res"], ""))
     for cohort, p in external.items():
-        for rep in ("embedding", "expression"):
-            params.append(("External cohort", cohort, rep, p[rep]["n_neighbors"], p[rep]["min_dist"], p[rep]["leiden_resolution"]))
+        for rep in ("embedding", "expression"):  # one set per cohort for both (older notebooks: one per space)
+            q = p.get(rep, p)
+            params.append(("External cohort", cohort, rep, q["n_neighbors"], q["min_dist"], q["leiden_resolution"], ""))
     params = pd.DataFrame(params, columns=["panel_group", "cohort_or_site", "representation", "umap_n_neighbors",
-                                           "umap_min_dist", "leiden_resolution"])
+                                           "umap_min_dist", "leiden_resolution", "note"])
 
     return {
         "S3a_cohort_overview": overview, "S3b_external_per_gene": per_gene, "S3c_driver_validation": drivers,

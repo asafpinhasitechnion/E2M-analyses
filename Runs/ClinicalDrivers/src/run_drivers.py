@@ -33,9 +33,14 @@ def load_external(config: dict, cohort: dict):
     folder = RUN_ROOT / config["data"]["standardized_dir"] / cohort["source"]
     read = lambda name: pd.read_csv(folder / name, index_col=0).rename(index=str)
     expression = read("expression.csv.gz")
-    if "filter" in cohort:  # POG570: one cancer type of the pan-cancer study
-        values = read("clinical_sample.csv.gz")[cohort["filter"]["column"]].reindex(expression.index).astype(str)
-        expression = expression[values.isin(cohort["filter"]["values"])]
+    # Samples of TCGA patients (difg_glass includes TCGA-* gliomas) are in the training data: left out
+    expression = expression[~expression.index.str.startswith("TCGA-")]
+    if "filter" in cohort:  # POG570: one cancer type of the pan-cancer study (minus the excluded tumour types)
+        clinical = read("clinical_sample.csv.gz").reindex(expression.index)
+        keep = clinical[cohort["filter"]["column"]].astype(str).isin(cohort["filter"]["values"])
+        if "exclude" in cohort["filter"]:
+            keep &= ~clinical[cohort["filter"]["exclude"]["column"]].astype(str).isin(cohort["filter"]["exclude"]["values"])
+        expression = expression[keep]
     genes = read("mutations_gene_level.csv.gz").reindex(expression.index)
 
     # Alteration labels from the coding events, missing where the gene was not sequenced; GEO series have no events
@@ -77,17 +82,26 @@ def load_tcga(config: dict, cohort: dict):
     return tcga.expression.astype(float), tcga.mutations, alterations, "TCGA_" + tcga.cancer.astype(str)
 
 
-def combat(tcga: pd.DataFrame, external: pd.DataFrame, tcga_batches: pd.Series, cohort: dict):
-    """log1p on each side as configured, then ComBat on the shared genes; batches are the TCGA cancer types and the cohort."""
+INTEGRATIONS = ("combat", "sample_rank")
+
+
+def integrate(tcga: pd.DataFrame, external: pd.DataFrame, tcga_batches: pd.Series, cohort: dict, method: str = "combat"):
+    """log1p on each side as configured, on the shared genes that are finite and vary inside every batch (the TCGA cancer
+    types and the cohort; what ComBat needs, used for every method so they see the same genes), then:
+    combat: ComBat with those batches; sample_rank: each sample's genes ranked within the sample."""
+    if method not in INTEGRATIONS:
+        raise ValueError(f"integration must be one of {INTEGRATIONS}")
     scale = lambda x, log: np.log1p(x.fillna(0).clip(lower=0)) if log else x.fillna(0)
     combined = pd.concat([scale(tcga, cohort["log1p_tcga"]), scale(external, cohort["log1p_external"])], join="inner").sort_index(axis=1)
     batch = pd.concat([tcga_batches, pd.Series(cohort["cohort_id"], index=external.index)])
-    # ComBat needs genes that are finite and vary inside every batch
     combined = combined.loc[:, np.isfinite(combined).all() & combined.groupby(batch.to_numpy()).var(ddof=0).gt(0).all()]
-    # inmoose takes genes x samples
-    corrected = pycombat_norm(counts=combined.T.to_numpy(dtype=np.float64), batch=batch.to_numpy())
-    corrected = pd.DataFrame(np.asarray(corrected).T, index=combined.index, columns=combined.columns)
-    return corrected.loc[tcga.index], corrected.loc[external.index], batch
+    if method == "combat":
+        # inmoose takes genes x samples
+        corrected = pycombat_norm(counts=combined.T.to_numpy(dtype=np.float64), batch=batch.to_numpy())
+        combined = pd.DataFrame(np.asarray(corrected).T, index=combined.index, columns=combined.columns)
+    else:
+        combined = combined.rank(axis=1, pct=True)
+    return combined.loc[tcga.index], combined.loc[external.index], batch
 
 
 def select_targets(targets: list[str], tcga_labels: pd.DataFrame, external_labels: pd.DataFrame, config: dict) -> pd.DataFrame:
@@ -142,7 +156,7 @@ def score(labels: pd.Series, probability: pd.Series, prevalence: float) -> dict:
             "normalized_auprc": (auprc - prevalence) / (1 - prevalence), "evaluable": True}
 
 
-def run_cohort(config: dict, cohort: dict, output_dir: Path) -> list[pd.DataFrame]:
+def run_cohort(config: dict, cohort: dict, output_dir: Path, integration: str) -> list[pd.DataFrame]:
     external_x, external_genes, external_alterations = load_external(config, cohort)
     tcga_x, tcga_genes, tcga_alterations, tcga_batches = load_tcga(config, cohort)
     drivers = CANCER_DRIVER_GENES[cohort["drivers"]]
@@ -152,7 +166,7 @@ def run_cohort(config: dict, cohort: dict, output_dir: Path) -> list[pd.DataFram
     }
     tables = {mode: select_targets(targets, tcga_y, external_y, config) for mode, (targets, tcga_y, external_y) in modes.items()}
     if any(table["selected"].any() for table in tables.values()):
-        tcga_c, external_c, batch = combat(tcga_x, external_x, tcga_batches, cohort)
+        tcga_c, external_c, batch = integrate(tcga_x, external_x, tcga_batches, cohort, integration)
 
     results = []
     for mode, (_, tcga_y, external_y) in modes.items():
@@ -169,7 +183,7 @@ def run_cohort(config: dict, cohort: dict, output_dir: Path) -> list[pd.DataFram
         out.mkdir(parents=True, exist_ok=True)
         table.to_csv(out / "targets.csv", index=False)
         probabilities.to_csv(out / "probabilities.csv.gz")
-        manifest = {**cohort, "label_mode": mode, "external_samples": len(external_x), "tcga_samples": len(tcga_x)}
+        manifest = {**cohort, "label_mode": mode, "integration": integration, "external_samples": len(external_x), "tcga_samples": len(tcga_x)}
         if table["selected"].any():
             manifest.update(n_features=tcga_c.shape[1], batches=batch.value_counts().to_dict())
         (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -182,19 +196,59 @@ def run_cohort(config: dict, cohort: dict, output_dir: Path) -> list[pd.DataFram
     return results
 
 
+def integration_output(integrations: list[str], method: str) -> Path:
+    """The first integration (the main result) writes to output/, the others to output/integration_<method>/."""
+    return RUN_ROOT / "output" / ("" if method == integrations[0] else f"integration_{method}")
+
+
+def compare_integrations(integrations: list[str]) -> None:
+    """Per-target metrics of every integration side by side: output/summary/integration_comparison.csv, and
+    integration_comparison.xlsx with one sheet per cohort."""
+    keys = ["cohort_id", "label", "cancer", "label_mode", "target", "alteration_definition", "external_n_positive",
+            "external_n_evaluable", "prevalence"]
+    metrics = ["normalized_auprc", "auprc", "roc_auc"]
+    index = ["cohort_id", "label_mode", "target"]
+    tables = []
+    for method in integrations:
+        table = pd.read_csv(integration_output(integrations, method) / "summary" / "clinical_driver_results.csv")
+        table = table[table["evaluable"].eq(True)].set_index(index)  # NaN for targets not tested
+        if not tables:
+            tables.append(table[[k for k in keys if k not in index]])  # the labels are the same for every integration
+        tables.append(table[metrics].add_suffix(f"_{method}"))
+    wide = pd.concat(tables, axis=1).reset_index()
+    wide = wide[keys + [f"{m}_{i}" for m in metrics for i in integrations]]
+    first, other = integrations[0], integrations[1]
+    wide[f"normalized_auprc_{first}_minus_{other}"] = wide[f"normalized_auprc_{first}"] - wide[f"normalized_auprc_{other}"]
+    wide = wide.sort_values(["cohort_id", "label_mode", f"normalized_auprc_{first}"], ascending=[True, True, False])
+    summary_dir = integration_output(integrations, first) / "summary"
+    wide.to_csv(summary_dir / "integration_comparison.csv", index=False)
+    with pd.ExcelWriter(summary_dir / "integration_comparison.xlsx") as writer:
+        medians = wide.groupby(["cohort_id", "label_mode"])[[c for c in wide.columns if c.startswith("normalized_auprc")]].median()
+        medians.assign(n_targets=wide.groupby(["cohort_id", "label_mode"]).size()).round(3).reset_index().to_excel(writer, sheet_name="medians", index=False)
+        for cohort_id, rows in wide.groupby("cohort_id", sort=False):
+            rows.drop(columns=["cohort_id", "label", "cancer"]).round(3).to_excel(writer, sheet_name=cohort_id[:31], index=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", nargs="+", help="Run only these cohorts (keys in config/config.yaml).")
     args = parser.parse_args()
     config = yaml.safe_load((RUN_ROOT / "config" / "config.yaml").read_text(encoding="utf-8"))
-    output_dir = RUN_ROOT / "output"
+    integrations = config["integrations"]
+    for integration in integrations:
+        run_integration(config, args, integration, integration_output(integrations, integration))
+    if len(integrations) > 1 and not args.only:
+        compare_integrations(integrations)
 
+
+def run_integration(config: dict, args, integration: str, output_dir: Path) -> None:
+    print(f"Integration {integration} -> {output_dir}", flush=True)
     results = []
     for cohort_id, cohort in config["cohorts"].items():
         if args.only and cohort_id not in args.only:
             continue
         print(f"Cohort {cohort_id}", flush=True)
-        results += run_cohort(config, {"cohort_id": cohort_id, "source": cohort_id, **cohort}, output_dir)
+        results += run_cohort(config, {"cohort_id": cohort_id, "source": cohort_id, **cohort}, output_dir, integration)
 
     # One table over cohorts and both label modes (Supplementary Table S3c keeps the evaluable rows)
     columns = ["cohort_id", "label", "cancer", "label_mode", "target", "alteration_definition", "external_n_positive",

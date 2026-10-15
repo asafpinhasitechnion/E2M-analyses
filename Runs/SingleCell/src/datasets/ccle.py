@@ -21,7 +21,7 @@ from sklearn.model_selection import KFold
 
 import config
 from models.multitask import MultiTaskConfig, _fit_one_fold
-from models.presets import MODEL_PRESETS
+from models.presets import MODEL_PARAMS
 
 
 # --------------------------------------------------------------------------- #
@@ -214,7 +214,6 @@ def run_multitask_mutation_cv(
     mutations_csv: Path,
     out_dir: Path,
     top_n: int,
-    preset_name: str = "simple_wide_run",
     model_column: str = "Model_ID",
     n_splits: int = 5,
     seed: int = 42,
@@ -238,9 +237,7 @@ def run_multitask_mutation_cv(
 
     X = csr_matrix(adata.X, dtype=np.float32)
 
-    params = dict(MODEL_PRESETS[preset_name])
-    params.pop("non_target_subsample", None)
-    cfg = MultiTaskConfig(**{k: v for k, v in params.items() if hasattr(MultiTaskConfig, k)})
+    cfg = MultiTaskConfig(**{k: v for k, v in MODEL_PARAMS.items() if hasattr(MultiTaskConfig, k)})
 
     unique_models = np.unique(cell_models)
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -250,7 +247,7 @@ def run_multitask_mutation_cv(
     oof_fold = np.full(adata.n_obs, -1, dtype=np.int32)
 
     print(
-        f"  [multitask-top{top_n}] preset={preset_name} "
+        f"  [multitask-top{top_n}] "
         f"genes={len(top_genes)} models={unique_models.size} cells={adata.n_obs} "
         f"features={adata.n_vars} folds={n_splits}"
     )

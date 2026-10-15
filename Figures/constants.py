@@ -10,10 +10,10 @@ import requests
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 
-# Run variant, set by run_all.py / run_figures.py: TCGA counts with CPM ("cpm") or without ("none").
-# Runs and figures of a variant live under output/<VARIANT>/ (cpm or counts).
+# Run variant, set by run_all.py / run_figures.py: TCGA counts with CPM ("cpm", the default) or without ("none").
+# Runs and figures of the default live in output/; the variant without CPM in output/counts/ (VARIANT is the subfolder).
 NORMALIZATION = os.environ.get("E2M_NORMALIZATION", "cpm")
-VARIANT = "cpm" if NORMALIZATION == "cpm" else "counts"
+VARIANT = "" if NORMALIZATION == "cpm" else "counts"
 # External integration method shown in Figure 4 and Tables S2-S3: each cohort's main method (first in the
 # External config) when unset, or one method for every cohort (e.g. "sample_rank").
 EXTERNAL_METHOD = os.environ.get("E2M_EXTERNAL_METHOD") or None

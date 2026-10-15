@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import re
 import shutil
 from pathlib import Path
 
@@ -70,7 +71,9 @@ def prepare_cbioportal(study: str, raw_dir: Path):
     """Expression, gene labels, clinical table and coding driver events of a cBioPortal study."""
     names = [f["name"] for f in requests.get(DATAHUB_LISTING.format(study=study), timeout=60).json() if f["type"] == "file"]
     get = lambda name: datahub(f"public/{study}/{name}", raw_dir / Path(name).name)
-    read = lambda name: pd.read_csv(get(name), sep="\t", comment="#", low_memory=False)
+    # Sample IDs as text: some studies (POG570) use numbers, which must match the expression column names
+    ids = {"SAMPLE_ID": str, "PATIENT_ID": str, "Tumor_Sample_Barcode": str}
+    read = lambda name: pd.read_csv(get(name), sep="\t", comment="#", low_memory=False, dtype=ids)
     metas = [key_values(get(name).read_text().splitlines()) for name in names if name.startswith("meta_")]
 
     # Expression: the continuous mRNA file (z-scores only when there is no other); duplicate symbols averaged
@@ -81,12 +84,16 @@ def prepare_cbioportal(study: str, raw_dir: Path):
     expression = expression.groupby(level=0).mean().T
     expression.index.name = "sample"
 
-    # Coding events of the driver genes
+    # Coding events of the driver genes. A large MAF can be split into parts (difg_glass: data_mutations.txt,
+    # data_mutations_1.txt, data_mutations_2.txt, each with its own header); the meta file names only the first.
     mutation_file = next(m["data_filename"] for m in metas if m.get("genetic_alteration_type") == "MUTATION_EXTENDED" and m.get("datatype") == "MAF")
+    stem = Path(mutation_file).stem
+    parts = [mutation_file] + sorted(n for n in names if re.fullmatch(rf"{re.escape(stem)}_\d+\.txt", n))
     events = pd.concat(
         chunk[chunk["Variant_Classification"].isin(CODING_VARIANT_CLASSES) & chunk["Hugo_Symbol"].isin(DRIVER_GENES)]
-        for chunk in pd.read_csv(get(mutation_file), sep="\t", comment="#", usecols=lambda c: c in MAF_COLUMNS,
-                                 chunksize=200_000, low_memory=False)
+        for part in parts
+        for chunk in pd.read_csv(get(part), sep="\t", comment="#", usecols=lambda c: c in MAF_COLUMNS,
+                                 chunksize=200_000, low_memory=False, dtype=ids)
     )
 
     # Gene labels: 1/0 for the sequenced samples (the study's sequenced case list), missing for the others
@@ -157,6 +164,7 @@ def prepare_geo(accession: str, raw_dir: Path):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", nargs="+", help="Prepare only these sources (cBioPortal study IDs or GEO accessions).")
+    parser.add_argument("--keep-raw", action="store_true", help="Keep the downloaded files in data/raw/<source>.")
     args = parser.parse_args()
     config = yaml.safe_load((RUN_ROOT / "config" / "config.yaml").read_text(encoding="utf-8"))
 
@@ -177,7 +185,8 @@ def main() -> None:
         expression.to_csv(out_dir / "expression.csv.gz")
         labels.to_csv(out_dir / "mutations_gene_level.csv.gz")
         clinical.to_csv(out_dir / "clinical_sample.csv.gz")
-        shutil.rmtree(raw_dir, ignore_errors=True)  # OneDrive can hold the emptied folder
+        if not args.keep_raw:
+            shutil.rmtree(raw_dir, ignore_errors=True)  # OneDrive can hold the emptied folder
         print(f"  {expression.shape[0]} samples ({labels.notna().any(axis=1).sum()} sequenced), {expression.shape[1]} genes", flush=True)
 
 

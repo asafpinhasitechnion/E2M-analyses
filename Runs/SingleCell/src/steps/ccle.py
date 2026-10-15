@@ -6,7 +6,7 @@ import config
 from datasets.ccle import load_ccle_adata, run_log_tmb_cv, run_multitask_mutation_cv
 
 
-TOP_N_VALUES = (150,)
+TOP_N_VALUES = (200,)
 REGRESSOR = "xgboost"
 
 
@@ -46,7 +46,6 @@ def main() -> None:
             mutations_csv=config.CCLE_MUTATIONS_CSV,
             out_dir=out_dir,
             top_n=top_n,
-            preset_name=config.MULTITASK_PRESET,
             n_splits=config.CV_FOLDS,
             seed=config.RANDOM_STATE,
         )

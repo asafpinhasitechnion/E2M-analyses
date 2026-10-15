@@ -7,7 +7,7 @@
 
     python Figures/run_figures.py tcga external tables --normalization none --external-method sample_rank
 
---normalization picks the run variant (cpm: Runs/*/output/cpm, none: Runs/*/output/counts) and
+--normalization picks the run variant (cpm: Runs/*/output, none: Runs/*/output/counts) and
 --external-method the External method of Figure 4 and the tables (default: each cohort's main method).
 They are passed to the notebooks and the tables as E2M_NORMALIZATION and E2M_EXTERNAL_METHOD
 (Figures/constants.py). Each executed notebook is saved next to its outputs, in its output folder.
@@ -27,9 +27,9 @@ GROUPS = {"tcga": [1, 2, 3], "external": [4], "singlecell": [5]}
 
 
 def output_folder(number: int) -> Path:
-    """Where a figure writes its panels: output/<variant>/ (Figures 1-3), output/<variant>/<method>/ (Figure 4),
-    output/ (Figure 5, which does not depend on the variant)."""
-    variant = "cpm" if os.environ.get("E2M_NORMALIZATION", "cpm") == "cpm" else "counts"
+    """Where a figure writes its panels: output/ (Figures 1-3), output/<method>/ (Figure 4), with counts/ before them
+    for the variant without CPM; output/ (Figure 5, which does not depend on the variant)."""
+    variant = "" if os.environ.get("E2M_NORMALIZATION", "cpm") == "cpm" else "counts"
     folder = FIGURES / f"Figure{number}" / "output"
     if number == 5:
         return folder

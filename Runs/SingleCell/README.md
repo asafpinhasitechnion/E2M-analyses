@@ -15,7 +15,7 @@ python src/run_all.py --check-md5              # verify md5 of downloaded files
 
 Steps, in order (`src/steps/`):
 
-1. `ccle` - CCLE log-TMB regression (XGBoost) and top-150 mutated-gene multitask model.
+1. `ccle` - CCLE log-TMB regression (XGBoost) and top-200 mutated-gene multitask model.
 2. `perturbation_multitask` - multitask neural network CV on Adamson (3 files), McFarland, Replogle K562, Replogle RPE1, Frangieh, Zhao.
 3. `frangieh_per_gene` - one XGBoost classifier per perturbation on Frangieh.
 4. `tian_guide_transfer` - Tian CRISPRa, train on one guide and test on the other.
@@ -31,7 +31,6 @@ Environment variables:
 Config: `config/config.yaml`
 
 - `random_state: 42`, `cv_folds: 5`
-- `multitask_preset: simple_wide_run` (defined in `src/models/presets.py`)
 - `preprocess_target_sum: 10000` (normalize_total target before log1p, all datasets including CCLE)
 - `xgboost`: `n_estimators: 300`, `learning_rate: 0.1`, `n_jobs: -1`
 - `zenodo_record_id` and `dataset_files` (scPerturb file names), `ccle_files` (CCLE inputs)
@@ -40,7 +39,7 @@ Main packages imported: scanpy, numpy, pandas, scipy, scikit-learn, xgboost, tor
 
 Models:
 
-- Multitask network (`src/models/multitask.py`, preset `simple_wide_run`): fully connected, hidden layers 512 and 256 with ReLU and dropout 0.3, one sigmoid output per target, BCE loss with per-target positive weight (neg/pos, clipped to 1-30), Adam (lr 1.5e-4, weight decay 8e-4), batch 1024, up to 100 epochs, ReduceLROnPlateau on validation loss, gradient clipping 1.0. Early stopping (patience 6) on mean validation AUPRC, using a random 20% of the training cells of each fold. No input scaling.
+- Multitask network (`src/models/multitask.py`, settings `MODEL_PARAMS` in `src/models/presets.py`; run folders end in `simple_wide_run`): fully connected, hidden layers 512 and 256 with ReLU and dropout 0.3, one sigmoid output per target, BCE loss with per-target positive weight (neg/pos, clipped to 1-30), Adam (lr 1.5e-4, weight decay 8e-4), batch 1024, up to 100 epochs, ReduceLROnPlateau on validation loss, gradient clipping 1.0. Early stopping (patience 6) on mean validation AUPRC, using a random 20% of the training cells of each fold. No input scaling.
 - Per-gene XGBoost (`src/models/per_gene.py`): `XGBClassifier` with the config parameters plus `tree_method: hist`.
 - Tian: scikit-learn `LogisticRegression` (saga, L2, C=1.0, max_iter 1000), one model per target gene.
 
@@ -53,8 +52,8 @@ Common to all scPerturb datasets:
 - Download: automatic. `run_all.py` reads the Zenodo record metadata from `https://zenodo.org/api/records/7041849` and downloads each file in `dataset_files` that is missing or smaller than the expected size. If the metadata cannot be fetched it uses `https://zenodo.org/records/7041849/files/<file name>`. Downloads resume from a `.part` file.
 - Matrix: `adata.X` as stored in the file (no layer is selected); raw integer counts (checked in Adamson 10X001, Tian and Zhao). The matrix stays sparse; the network makes one mini-batch dense at a time.
 - Normalization: `sc.pp.normalize_total(target_sum=10000)` then `sc.pp.log1p`.
-- No gene filtering, no HVG selection, no cell QC, no batch correction in this code. All genes in the file are used as features.
-- Eligible targets: perturbation labels with at least `min_cells_per_gene` cells (mc300 or mc800), control labels excluded from the count. Cells with other (non-eligible) perturbations are dropped.
+- No gene filtering, no HVG selection, no batch correction in this code; no cell QC except McFarland's own quality flags (below). All genes in the file are used as features.
+- Eligible targets: perturbation labels with at least `min_cells_per_gene` cells (mc300; Frangieh too since it uses single-guide cells), control labels excluded from the count. Cells with other (non-eligible) perturbations are dropped.
 - Controls: cells whose label is in the control list are kept as negatives (all targets 0). Default control labels: `non-targeting`, `control`. No subsampling of controls.
 - Labels: one binary output per eligible perturbation.
 - CV: 5 folds. Cell-level `KFold` (shuffled, seed 42) unless a group column is given, in which case `GroupKFold` on that column. A fold without positives for a target has no AUPRC (missing, not 0). Normalized AUPRC = (AUPRC - prevalence) / (1 - prevalence), as for TCGA.
@@ -94,10 +93,11 @@ Common to all scPerturb datasets:
 - Source: scPerturb, Zenodo record 7041849: `FrangiehIzar2021_RNA.h5ad`.
 - Download: automatic.
 - Processing:
-  - Common normalization; label column `perturbation`; immune condition column `perturbation_2` (used only to report metrics per condition).
-  - Minimum 800 cells per perturbation.
-  - Multitask model: controls `non-targeting`, `control`; cell-level KFold. 136,396 cells (57,605 controls), 23,712 features, 79 targets.
-  - Per-gene XGBoost: same 79 perturbations (`control` excluded from the count). For each perturbation, positives are its cells and negatives are the cells of the other 78 perturbations and the controls, the same 136,396 cells as the multitask model. CV: `StratifiedKFold` on cells (shuffled, seed 42), per gene.
+  - Single-guide cells only (`datasets/labels.py`), as in the authors' analysis: their `obs["sgRNA"]` is set only for cells with exactly one guide (126,966; MOI 1) and their linear model assigns one guide per cell (`linear_model.py`, github.com/klarman-cell-observatory/Perturb-CITE-seq). The label is the guide's target gene; control guides (`NO_SITE_*` non-targeting, `ONE_NON-GENE_SITE_*` intergenic, Supplementary Table 1) are `control`. scPerturb's `perturbation` also labels cells with several guides (by the first gene; up to 19 guides per cell at a nominal MOI of 0.1) and cells with no guide (as control); those cells are left out. The authors' cell QC (>200 genes, <18% mitochondrial) is already applied in the file.
+  - Common normalization; immune condition column `perturbation_2` (used only to report metrics per condition).
+  - Minimum 300 cells per perturbation (about 500 single-guide cells per gene).
+  - Multitask model: controls `control`; cell-level KFold. 119,193 cells (15,621 controls), 23,712 features, 192 targets.
+  - Per-gene XGBoost: the same 192 perturbations (`control` excluded from the count). For each perturbation, positives are its cells and negatives are the cells of the other 191 perturbations and the controls, the same 119,193 cells as the multitask model. CV: `StratifiedKFold` on cells (shuffled, seed 42), per gene.
   - `frangieh_conditions` recomputes metrics within each value of `perturbation_2`, overall and per fold, from the saved held-out predictions of both models.
 
 ### McFarland (McFarland/Tsherniak 2020)
@@ -105,10 +105,12 @@ Common to all scPerturb datasets:
 - Source: scPerturb, Zenodo record 7041849: `McFarlandTsherniak2020.h5ad`.
 - Download: automatic.
 - Processing:
+  - The authors' cell QC: only cells with `obs["cell_quality"] == "normal"` (155,164 of 182,875; the others are doublets, empty droplets or low quality).
+  - Trametinib time course (`datasets/labels.py`): scPerturb labels every cell of this cell-hashed experiment "Trametinib"; by `obs["hash_tag"]`, DMSO and untreated cells (7,721 after QC) become controls and multiplet/unknown hashes (628) are left out. Cells without a hash tag (the unhashed 24 h experiment) stay Trametinib (24,653 Trametinib cells in all).
   - Common normalization; label column `perturbation`.
   - Minimum 300 cells per perturbation. Controls: `non-targeting`, `control`.
-  - CV: GroupKFold on `obs["cell_line"]` (209 cell lines), so train and test folds share no cell line.
-  - Final size: 182,875 cells (29,143 controls), 32,738 features, 17 targets.
+  - CV: GroupKFold on `obs["cell_line"]`, so train and test folds share no cell line.
+  - Size before QC: 182,875 cells (29,143 controls), 32,738 features, 17 targets.
 
 ### Zhao (Zhao/Sims 2021)
 
@@ -142,19 +144,19 @@ Common to all scPerturb datasets:
   - `sc.pp.filter_genes(min_cells=3)`, `sc.pp.normalize_total(target_sum=10000)`, `sc.pp.log1p`.
   - Mutations: coding rows only, by `VariantInfo`, as for TCGA: missense, nonsense, nonstop, frameshift, in-frame, start codon and splice site (MAF-like names up to DepMap 23Q2, which also list silent mutations; sequence-ontology terms from 23Q4). TMB of a model = number of such rows; the regression target is log1p(TMB), assigned to every cell of the model.
   - Cells whose model has no such mutation are removed.
-  - Multitask targets: the 150 genes mutated (coding rows) in the largest number of the 202 models in the data, among genes mutated in at least 20 of them (ties by gene name). A cell is positive for a gene if its model carries a mutation in it.
+  - Multitask targets: the 200 genes mutated (coding rows) in the largest number of the 202 models in the data, among genes mutated in at least 20 of them (ties by gene name). A cell is positive for a gene if its model carries a mutation in it.
   - No HVG selection or batch correction.
-  - CV: 5-fold `KFold` over unique `Model_ID`, so all cells of a cell line are in the same fold. Used for both the XGBoost regressor and the multitask network (same `simple_wide_run` preset).
-  - Final size: 54,759 cells from 202 models, 150 target genes. TODO: number of features after `filter_genes` (printed to the log only).
+  - CV: 5-fold `KFold` over unique `Model_ID`, so all cells of a cell line are in the same fold. Used for both the XGBoost regressor and the multitask network (same `MODEL_PARAMS`).
+  - Final size: 54,759 cells from 202 models, 200 target genes. TODO: number of features after `filter_genes` (printed to the log only).
 
 ## Outputs
 
 `output/runs/<run name>/`, one folder per model run:
 
 - Multitask runs: `<file stem>_mc<min cells>_simple_wide_run[_cvgrp_<group column>]`. Adamson runs have the prefix `admason_`. Files: `run_metadata.json`, `metric_summary_per_gene.csv` (pooled out-of-fold), `metric_summary_per_gene_folds.csv`, `oof_probabilities.csv`, `oof_true_labels.csv`, `oof_cell_folds.csv`, `oof_sample_embeddings.csv` (last hidden layer), `fold_head_weights_<k>.csv`, `head_weights_per_fold.csv`, training histories. Frangieh also has `metric_summary_per_gene_by_condition*.csv`; Zhao also has the `*_selected_targets.csv` PR-curve files.
-- `FrangiehIzar2021_RNA_per_gene_mc800_baseline/`: `predictions_<gene>.csv`, `fold_metrics_<gene>.csv`, summaries, `run_metadata.json`.
+- `FrangiehIzar2021_RNA_per_gene_mc300_baseline/`: `predictions_<gene>.csv`, `fold_metrics_<gene>.csv`, summaries, `run_metadata.json`.
 - `TianKampmann2021_CRISPRa_two_guide_per-gene_mcg100_simple_wide_run/`: `directional_metrics_per_gene.csv`, `directional_predictions_long.csv`, `directional_summary.csv`, `run_metadata.json`.
-- `ccle_tmb_and_multitask/`: `log_tmb_fold_metrics.csv`, `cell_level_xgboost.csv`, `model_level_xgboost.csv` (cell predictions averaged per model), `meta_xgboost.csv`, `multitask_fold_metrics_150.csv`, `multitask_summary_150.csv`.
+- `ccle_tmb_and_multitask/`: `log_tmb_fold_metrics.csv`, `cell_level_xgboost.csv`, `model_level_xgboost.csv` (cell predictions averaged per model), `meta_xgboost.csv`, `multitask_fold_metrics_200.csv`, `multitask_summary_200.csv`.
 
 `output/plot_inputs/`: a copy of the files used downstream, one subfolder per dataset (`Adamson_10X001`, `Adamson_10X005`, `Adamson_10X010`, `McFarland`, `Replogle_K562`, `Replogle_RPE1`, `Frangieh`, `Frangieh_per_gene`, `Tian`, `Zhao`, `CCLE`), plus `_bundle_manifest.json` listing each file as ok or missing. The file list is in `src/steps/plot_inputs.py`.
 

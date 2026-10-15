@@ -4,20 +4,20 @@ Trains E2M on TCGA and predicts mutations in eight external cohorts (CPTAC/CMI, 
 
 ## Running
 
-Install E2M as in `Runs/TCGA/README.md`, plus `inmoose`, `umap-learn`, `openpyxl` and `requests`. From `Runs/External`:
+Install E2M as in `Runs/TCGA/README.md`, plus `requirements-extra.txt` (`umap-learn`, `openpyxl`); the ComBat methods also need `inmoose`. From `Runs/External`:
 
 ```
 python src/run_external.py                                   # all cohorts, all their methods
-python src/run_external.py --cohorts RIAZ --methods combat_seq
+python src/run_external.py --cohorts RIAZ --methods sample_rank
 python src/run_external.py --normalization none          # TCGA counts without CPM: output/counts/
 ```
 
-Settings are in `config/e2m.yaml`: per cohort the TCGA cancer types, the TCGA expression file, the scale of the cohort's expression, and the integration methods (the first is the main result). TCGA data, preprocessing (CPM, or none with `--normalization none`) and the model come from `Runs/TCGA/config/e2m.yaml`; the melanoma cohorts are trained and evaluated on the top 20 targets of the TCGA-SKCM run of the same variant by normalized AUPRC (`Runs/TCGA/output/<variant>/SKCM/cv/metrics.csv`, `<variant>` = `cpm` or `counts`; `--top-n` changes the number), so Runs/TCGA must be run first. `explore_run.ipynb` runs the steps of one cohort, one per cell.
+Settings are in `config/e2m.yaml`: per cohort the TCGA cancer types, the TCGA expression file, the scale of the cohort's expression, and the integration methods (the first is the main result). TCGA data, preprocessing (CPM, or none with `--normalization none`) and the model come from `Runs/TCGA/config/e2m.yaml`; the melanoma cohorts are trained and evaluated on the top 20 targets of the TCGA-SKCM run of the same variant by normalized AUPRC (`Runs/TCGA/output/SKCM/cv/metrics.csv`, or `output/counts/SKCM/...` without CPM; `--top-n` changes the number), so Runs/TCGA must be run first. `explore_run.ipynb` runs the steps of one cohort, one per cell.
 
 ## Method
 
 - TCGA training data: `e2m.Dataset.from_tcga` (as in Runs/TCGA), linear counts or TPM. Targets: genes mutated in at least 3% and at least 10 of the TCGA training samples; for the melanoma cohorts, the top 20 TCGA-SKCM targets instead.
-- Integration, on the genes shared with the cohort (`src/integration.py`, TCGA is one batch): `none` (each sample on its own: CPM + log1p, log1p of the counts without CPM, or log1p of TPM); `combat` / `combat_ref` (ComBat on the log values, jointly or with TCGA as the reference batch); `combat_seq` / `combat_seq_ref` (ComBat-seq on counts, then CPM + log1p, or log1p without CPM); `rank` (each gene ranked across samples within each side); `sample_rank` (each sample's genes ranked within the sample, so it does not depend on CPM).
+- Integration, on the genes shared with the cohort (`src/integration.py`, TCGA is one batch): `none` (each sample on its own: CPM + log1p, log1p of the counts without CPM, or log1p of TPM); `combat` (ComBat on the log values of TCGA and the cohort together); `rank` (each gene ranked across samples within each side); `sample_rank` (each sample's genes ranked within the sample, so it does not depend on CPM).
 - Model: an E2M model trained on all TCGA samples of the cohort's cancer types and applied to the cohort; one model per cohort and method.
 - Labels: a sample is profiled if it (or its patient) has rows in the cohort's mutation data; it is 1 for a gene with a coding call and 0 otherwise. Coding calls are the 9 MAF classes of the TCGA labels (Missense, Nonsense, Frame_Shift_Del/Ins, In_Frame_Del/Ins, Splice_Site, Translation_Start_Site, Nonstop) or their equivalents in other annotations (Sequence Ontology: missense, stop gained/lost, start lost, frameshift, in-frame insertion/deletion, splice acceptor/donor, protein altering; Oncotator: Start_Codon_SNP/Del/Ins, Stop_Codon_Del). Samples that are not profiled keep their clinical data and have missing labels, which are left out of the metrics.
 - Every RNA sample with clinical data is kept (for the embeddings and clinical analyses).
@@ -30,7 +30,7 @@ Files go under `data/external/<folder>/`. METABRIC, Liu, Riaz and Morrison are d
 - Source: NCI GDC, projects CPTAC-2, CPTAC-3, CMI-MBC, CMI-MPC (cart of 2026-02-15): STAR gene counts (`*.rna_seq.augmented_star_gene_counts.tsv`), masked somatic MAFs (`*.wxs.aliquot_ensemble_masked.maf.gz`), and the sample sheet, `sample.tsv` and `clinical.tsv` of the same cart.
 - The counts were combined into `expression_counts.tsv.gz` (protein-coding genes by symbol, `unstranded` counts, one column per file UUID) and the MAFs into `mutations_merged.maf.gz` (with the source file name on each row).
 - Processing: the sample sheet links each file to its sample(s); `sample.tsv` says whether a sample is tumour or normal. Normal RNA files are not used; RNA files of the same sample(s) are averaged. An RNA sample gets the mutations of the MAF(s) of the same tumour sample; without one, those of all the patient's MAFs if it is the patient's only RNA sample. MAFs without any call are not used. One row per patient: a sample with mutation data first, then a Primary tumour, then the first sample ID.
-- Clinical, combined over a patient's rows: OS (dead: days to death, otherwise the longest follow-up) and recurrence (any progression or recurrence: earliest days to recurrence, otherwise the longest follow-up). Tumour type: TCGA-style code from primary site and primary diagnosis (`cancer`). Batch: GDC project.
+- Clinical, combined over a patient's rows: OS (dead: days to death, otherwise the longest follow-up) and recurrence (any progression or recurrence: earliest days to recurrence, otherwise the longest follow-up). Solid tumours only (acute myeloid leukaemia, by primary diagnosis, is left out); results are reported per primary site. Batch: GDC project.
 
 ### ImmunoPOG (`IMMUNOPOG/`)
 - Source: BCGSC, www.bcgsc.ca/downloads/immunoPOG/ (`ImmunoPOG_expression_raw_counts_all.txt.gz`, `ImmunoPOG_coding_mutations.txt.gz`, downloaded), and Pender et al. 2021 (Clin Cancer Res 27:202) Supplementary Table 1 (`10780432ccr201163-sup-240190_4_supp_6604687_qh8c2m.xlsx`, clinical), placed manually.
@@ -62,4 +62,4 @@ Files go under `data/external/<folder>/`. METABRIC, Liu, Riaz and Morrison are d
 
 ## Outputs
 
-`output/<variant>/<cohort>/<method>/` (`<variant>` = `cpm` or `counts`): `metrics.csv` (per target), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `expression_external.csv.gz` (the integrated expression the model was applied to), `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/<variant>/runs_summary.csv` summarizes all runs.
+`output/<cohort>/<method>/` (`output/counts/<cohort>/<method>/` without CPM): `metrics.csv` (per target), `site_metrics.csv` (CPTAC/CMI and ImmunoPOG), `probabilities.csv.gz`, `labels.csv.gz`, `clinical.csv.gz`, `embeddings_tcga.csv.gz`, `embeddings_external.csv.gz`, `expression_external.csv.gz` (the integrated expression the model was applied to), `umap_before.csv` / `umap_after.csv`, `model/` (the trained E2M model), `manifest.json`. `output/runs_summary.csv` summarizes all runs.

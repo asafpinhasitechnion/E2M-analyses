@@ -46,7 +46,7 @@ def main():
     config = load_config(args.config, {"data": overrides})
     all_cohorts = config["run"]["cohorts"]
     cohorts = [c.upper() if c != "all" else c for c in (args.cohorts or [*all_cohorts, "all"])]
-    output = RUN_ROOT / "output" / ("cpm" if config["data"]["normalization"] == "cpm" else "counts")
+    output = RUN_ROOT / "output" / ("" if config["data"]["normalization"] == "cpm" else "counts")  # CPM, the default: output/
     e2m.set_verbose()
 
     if {"mutation", "shap"} & set(args.tasks):

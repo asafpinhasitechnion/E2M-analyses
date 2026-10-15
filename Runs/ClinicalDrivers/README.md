@@ -1,6 +1,6 @@
 # Clinical driver alterations
 
-This run trains XGBoost classifiers on TCGA expression to predict clinically relevant driver mutations, either per gene or per specific alteration (for example KRAS G12C), and tests them on external cohorts from cBioPortal and GEO. Before training, TCGA and each external cohort are integrated with ComBat. The summary table `output/summary/clinical_driver_results.csv` is used for Supplementary Table 3c (`Tables/supplementary_tables.py`, sheet `S3c_driver_validation`). No script under `Figures/` reads this run's outputs.
+This run trains XGBoost classifiers on TCGA expression to predict clinically relevant driver mutations, either per gene or per specific alteration (for example KRAS G12C), and tests them on external cohorts from cBioPortal and GEO. Before training, TCGA and each external cohort are integrated, twice (`integrations` in the config): with ComBat, the main result in `output/`, and with sample_rank (each sample's genes ranked within the sample) in `output/integration_sample_rank/`. `output/summary/integration_comparison.csv` and `.xlsx` (one sheet per cohort, plus the medians) put the two side by side per target. XGBoost runs on the GPU (`device: cuda`). The summary table `output/summary/clinical_driver_results.csv` is used for Supplementary Table 3c (`Tables/supplementary_tables.py`, sheet `S3c_driver_validation`). No script under `Figures/` reads this run's outputs.
 
 ## Running
 
@@ -9,7 +9,7 @@ Run all commands from `Runs/ClinicalDrivers`:
     python src/prepare_cohorts.py     # download each cohort and write it in one format to data/standardized
     python src/run_drivers.py         # train on TCGA and test on each cohort, gene and alteration modes
 
-Both take `--only` to run some of the sources (`prepare_cohorts.py`: cBioPortal study IDs or GEO accessions) or cohorts (`run_drivers.py`: cohort keys of `config/config.yaml`).
+Both take `--only` to run some of the sources (`prepare_cohorts.py`: cBioPortal study IDs or GEO accessions) or cohorts (`run_drivers.py`: cohort keys of `config/config.yaml`). `prepare_cohorts.py` deletes each source's downloads (`data/raw/<source>/`) once it has written the standardized files; `--keep-raw` keeps them.
 
 Configuration:
 - `config/config.yaml`: data paths, XGBoost parameters, target-selection thresholds, and one entry per cohort: source (cBioPortal study or GEO series; default the cohort key), driver list, matching TCGA cancer type(s), TCGA expression file (`counts` or `tpm`), whether to apply log1p to each side, and an optional sample filter.
@@ -17,7 +17,7 @@ Configuration:
 - `src/alterations.py`: the alteration-level labels.
 
 All data are downloaded by the code. TCGA data are loaded with E2M (`e2m.Dataset.from_tcga`, settings from `../TCGA/config/e2m.yaml`) from `../TCGA/data`, and missing files are downloaded there:
-- `expression/TCGA-{CANCER}.star_{tpm|counts}.tsv.gz`: Xena GDC hub STAR expression. TPM for PAAD, LUAD, LGG, GBM, BRCA, COAD, READ and CHOL; counts for PAAD (PRINCE).
+- `expression/TCGA-{CANCER}.star_{tpm|counts}.tsv.gz`: Xena GDC hub STAR expression. TPM for PAAD, LUAD, LGG, GBM, BRCA, COAD and READ; counts for PAAD (PRINCE).
 - `annotation/gencode.v36.annotation.gtf.gene.probemap` and `annotation/gencode.v36.annotation.gtf.gz`: gene symbols and protein-coding genes.
 - `mutations/{CANCER}_mc3_gene_level.txt.gz`: gene-level MC3 labels.
 - `mutation_events/{CANCER}_mc3.txt.gz`: MC3 mutation events (Xena TCGA hub), for the alteration-level labels.
@@ -40,7 +40,6 @@ Main packages: pandas, numpy, pyyaml, requests, scikit-learn, xgboost, inmoose (
 | pog570_bcgsc_2020__COLO | same study, ANALYSIS_COHORT = COLO | RNA-seq RPKM | COLO | COAD, READ | tpm |
 | pog570_bcgsc_2020__LUAD | same study, ONCOTREE_CODE = LUAD | RNA-seq RPKM | LUAD | LUAD | tpm |
 | pog570_bcgsc_2020__PAAD | same study, ONCOTREE_CODE = PAAD | RNA-seq RPKM | PAAD | PAAD | tpm |
-| pog570_bcgsc_2020__CHOL | same study, ANALYSIS_COHORT = CHOL | RNA-seq RPKM | CHOL | CHOL | tpm |
 | GSE39582 | GEO GSE39582 (Marisa / CIT), colon cancer | GPL570 Affymetrix microarray | COLO | COAD, READ | tpm |
 | GSE31210 | GEO GSE31210 (Okayama), lung adenocarcinoma | GPL570 Affymetrix microarray | LUAD | LUAD | tpm |
 
@@ -104,4 +103,5 @@ An alteration label is missing where its gene is missing. A cohort is tested on 
 
 `output/` (from run_drivers.py):
 - `gene/<cohort>/` and `alteration/<cohort>/`: `targets.csv` (selection, counts and metrics per target), `probabilities.csv.gz` (external predictions), `manifest.json` (cohort settings, sample numbers, genes after integration, batch sizes).
+- `summary/integration_comparison.csv` / `.xlsx`: per target, normalized AUPRC, AUPRC and ROC AUC with ComBat and with sample_rank, and their difference.
 - `summary/clinical_driver_results.csv`: both modes, with columns cohort_id, label, cancer, label_mode, target, alteration_definition, external_n_positive, external_n_evaluable, prevalence, roc_auc, auprc, normalized_auprc and evaluable. `Tables/supplementary_tables.py` keeps the rows with `evaluable` = True for Supplementary Table S3c.

@@ -70,11 +70,11 @@ TMB: XGBoost regression (300 trees, learning rate 0.1, on the GPU), 5-fold cross
 
 ## Outputs
 
-`output/cpm/` (or `output/counts/` with `--normalization none`), one folder per cohort (`ACC` ... `UVM`, `all`):
+`output/` (or `output/counts/` with `--normalization none`), one folder per cohort (`ACC` ... `UVM`, `all`):
 - `preprocessing_manifest.json`: per cancer type, the number of expression, MC3 and matched samples, duplicate symbols summed, the final number of samples, genes and targets, and the SHA-256 of each source file.
 - `cv/`: `oof_probabilities.csv` and `oof_predictions.csv` (samples x targets), `metrics.csv` (pooled, per target), `fold_metrics.csv`, `fold_assignments.csv`, `run_metadata.json` (settings, split, timing, device, package versions, E2M version and commit), `folds/fold_{k}/` (the model of each fold).
 - `model/`: full-data model: `model.pt` (weights and scaler), `features.json` (input gene order), `targets.json` (target order), `feature_means.npy`, `model_metadata.json`, `training_history.csv`.
 - `embeddings.csv` (samples x 256), `head_weights.csv` (targets x 256).
 - `shap/{target}/`: `feature_summary.csv` (all genes ranked by mean |SHAP|), `sample_shap_top_features.csv.gz` (per-sample SHAP and expression of the top 20 genes), `metadata.json`.
 
-`output/cpm/tmb/`: `oof_predictions.csv`, `summary.csv` (overall and per cancer type), `fold_metrics.csv`, `run_metadata.json`, `folds/` (the model of each fold).
+`output/tmb/`: `oof_predictions.csv`, `summary.csv` (overall and per cancer type), `fold_metrics.csv`, `run_metadata.json`, `folds/` (the model of each fold).
