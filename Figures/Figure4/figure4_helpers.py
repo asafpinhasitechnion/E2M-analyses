@@ -977,12 +977,11 @@ EXTERNAL_COHORT_LABELS = {
 
 
 def external_cohort_methods(config: Figure4Config) -> dict[str, str]:
-    """Each cohort's integration method: the first of its methods in the External run's config, or EXTERNAL_METHOD
-    (constants.py) for every cohort that ran it."""
+    """Each cohort's integration method: EXTERNAL_METHOD (constants.py) if the cohort ran it, else the first of its methods
+    in the External run's config (as in the supplementary tables)."""
     cohorts = yaml.safe_load(config.external_config_path.read_text(encoding="utf-8"))["cohorts"]
-    if EXTERNAL_METHOD:
-        return {cohort: EXTERNAL_METHOD for cohort, settings in cohorts.items() if EXTERNAL_METHOD in settings["methods"]}
-    return {cohort: settings["methods"][0] for cohort, settings in cohorts.items()}
+    return {cohort: EXTERNAL_METHOD if EXTERNAL_METHOD in settings["methods"] else settings["methods"][0]
+            for cohort, settings in cohorts.items()}
 
 
 def available_external_cohorts(config: Figure4Config) -> list[str]:

@@ -1,6 +1,6 @@
 # TCGA
 
-Predicts gene mutation status and tumor mutational burden (TMB) from RNA expression in TCGA with E2M. For each cancer type, and for all cancer types together ("all"), it runs 5-fold cross-validation of the multitask neural network, trains a full-data model for sample embeddings and head weights, and runs SHAP on separate XGBoost models for the well-predicted targets. TMB is predicted pan-cancer with XGBoost regression. Outputs are used by Figures 1-4 and Supplementary Tables 1-3.
+Predicts gene mutation status and tumor mutational burden (TMB) from RNA expression in TCGA with E2M. For each cancer type (or all together), it runs 5-fold cross-validation of the multitask neural network, trains a full-data model for sample embeddings and head weights, and runs SHAP on separate XGBoost models for the well-predicted targets. TMB is predicted pan-cancer with XGBoost regression. Outputs are used by Figures 1-4 and Supplementary Tables 1-3.
 
 ## Installation
 
@@ -50,11 +50,11 @@ Expression (per cohort, in this order):
 5. log1p.
 6. Inside each model, every gene is standardized (StandardScaler) on that model's training samples.
 
-Samples: expression and mutation labels are matched on the sample ID `TCGA-XX-XXXX-NN` (patient and sample type, as in MC3). When a sample has several vials in the expression file, the earliest vial letter is used. Samples without MC3 labels are not used. Sample types are not filtered (for example, SKCM metastases, type 06, are included).
+Samples: expression and mutation labels are matched on the sample ID `TCGA-XX-XXXX-NN` (patient and sample type, as in MC3). When a sample has several vials in the expression file, the earliest vial letter is used. Samples without MC3 labels are filtered. 
 
-Mutation targets: protein-coding genes mutated in at least 5% of the matched samples, then the 400 most frequent (ties broken by gene name). For "all", prevalence is computed over all cancer types together.
+Mutation targets: protein-coding genes mutated in at least 5% of the matched samples, then the 400 most frequent.
 
-TMB: number of coding MC3 events per sample (Missense_Mutation, Frame_Shift_Del, Frame_Shift_Ins, Nonsense_Mutation, Nonstop_Mutation, In_Frame_Del, In_Frame_Ins, Translation_Start_Site, Splice_Site). Target: log2(TMB + 1). Samples without any coding event are dropped.
+TMB: number of coding MC3 events per sample (Missense_Mutation, Frame_Shift_Del, Frame_Shift_Ins, Nonsense_Mutation, Nonstop_Mutation, In_Frame_Del, In_Frame_Ins, Translation_Start_Site, Splice_Site). Target: log2(TMB + 1). 
 
 ## Models
 

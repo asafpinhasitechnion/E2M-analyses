@@ -137,12 +137,6 @@ def _bar_value(metric, prevalence, rank_mode):
 _BAR_YLABEL = {"metric": "{}", "normalized": "Normalized {}", "lift": "{} / prevalence"}
 
 
-def _auc_trapezoid(y, x) -> float:
-    if hasattr(np, "trapezoid"):
-        return float(np.trapezoid(y, x))
-    return float(np.trapz(y, x))
-
-
 def plot_auprc_boxplot(
     run_dir: Path,
     title: str,
@@ -317,7 +311,7 @@ def plot_zhao_pr_curves(pr_points_csv: Path, out_dir: Path, *, figsize=(3.0, 2.3
         fig, ax = plt.subplots(figsize=figsize)
         for i, (fold, fold_df) in enumerate(target_df.groupby("fold")):
             fold_df = fold_df.sort_values("recall")
-            fold_auprc = _auc_trapezoid(fold_df["precision"].values, fold_df["recall"].values)
+            fold_auprc = float(fold_df["auprc"].iloc[0])  # average precision, as in Table S4
             ax.plot(
                 fold_df["recall"],
                 fold_df["precision"],

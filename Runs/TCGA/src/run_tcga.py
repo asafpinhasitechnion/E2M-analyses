@@ -54,9 +54,8 @@ def main():
             cancers = all_cohorts if name == "all" else [name]
             run_cohort(name, cancers, args.tasks, args, config, overrides, output / name)
 
-    if "tmb" in args.tasks:
-        cancers = all_cohorts if "all" in cohorts else cohorts
-        data = e2m.Dataset.from_tcga(cancers, data_dir=args.data_dir, config=args.config, data_overrides=overrides)
+    if "tmb" in args.tasks and "all" in cohorts:  # pan-cancer only, so a run on some cohorts keeps output/tmb
+        data = e2m.Dataset.from_tcga(all_cohorts, data_dir=args.data_dir, config=args.config, data_overrides=overrides)
         e2m.TmbModel(config=config).cross_validate(data, output=output / "tmb")
 
 

@@ -54,7 +54,7 @@ def load_external(config: dict, cohort: dict):
 
 
 def load_tcga(config: dict, cohort: dict):
-    """TCGA from E2M: linear TPM, or CPM for counts, of protein-coding genes; every mutated gene as a label; the cancer
+    """TCGA from E2M: linear TPM or FPKM, or CPM for counts, of protein-coding genes; every mutated gene as a label; the cancer
     type as ComBat batch. Alteration labels from E2M's per-cancer MC3 event files, coding events only."""
     data_dir = RUN_ROOT / config["tcga"]["data_dir"]
     overrides = {
@@ -86,13 +86,16 @@ INTEGRATIONS = ("combat", "sample_rank")
 
 
 def integrate(tcga: pd.DataFrame, external: pd.DataFrame, tcga_batches: pd.Series, cohort: dict, method: str = "combat"):
-    """log1p on each side as configured, on the shared genes that are finite and vary inside every batch (the TCGA cancer
+    """log1p on each side as configured (and TCGA z-scored per gene with tcga_zscore), on the shared genes that are finite and vary inside every batch (the TCGA cancer
     types and the cohort; what ComBat needs, used for every method so they see the same genes), then:
     combat: ComBat with those batches; sample_rank: each sample's genes ranked within the sample."""
     if method not in INTEGRATIONS:
         raise ValueError(f"integration must be one of {INTEGRATIONS}")
-    scale = lambda x, log: np.log1p(x.fillna(0).clip(lower=0)) if log else x.fillna(0)
-    combined = pd.concat([scale(tcga, cohort["log1p_tcga"]), scale(external, cohort["log1p_external"])], join="inner").sort_index(axis=1)
+    scale = lambda x, log: np.log1p(x.clip(lower=0)) if log else x  # missing values stay NaN, so their genes are dropped
+    tcga = scale(tcga, cohort["log1p_tcga"])
+    if cohort.get("tcga_zscore"):  # the cohort is per-gene z-scores: TCGA the same (genes without variance become NaN)
+        tcga = (tcga - tcga.mean()) / tcga.std(ddof=0)
+    combined = pd.concat([tcga, scale(external, cohort["log1p_external"])], join="inner").sort_index(axis=1)
     batch = pd.concat([tcga_batches, pd.Series(cohort["cohort_id"], index=external.index)])
     combined = combined.loc[:, np.isfinite(combined).all() & combined.groupby(batch.to_numpy()).var(ddof=0).gt(0).all()]
     if method == "combat":
@@ -237,7 +240,7 @@ def main() -> None:
     integrations = config["integrations"]
     for integration in integrations:
         run_integration(config, args, integration, integration_output(integrations, integration))
-    if len(integrations) > 1 and not args.only:
+    if len(integrations) > 1:
         compare_integrations(integrations)
 
 
@@ -253,9 +256,13 @@ def run_integration(config: dict, args, integration: str, output_dir: Path) -> N
     # One table over cohorts and both label modes (Supplementary Table S3c keeps the evaluable rows)
     columns = ["cohort_id", "label", "cancer", "label_mode", "target", "alteration_definition", "external_n_positive",
                "external_n_evaluable", "prevalence", "roc_auc", "auprc", "normalized_auprc", "evaluable"]
+    path = output_dir / "summary" / "clinical_driver_results.csv"
+    if args.only and path.exists():  # keep the rows of the cohorts not rerun
+        previous = pd.read_csv(path)
+        results.insert(0, previous[~previous["cohort_id"].isin(args.only)])
     summary = pd.concat(results, ignore_index=True).reindex(columns=columns)
-    (output_dir / "summary").mkdir(parents=True, exist_ok=True)
-    summary.to_csv(output_dir / "summary" / "clinical_driver_results.csv", index=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(path, index=False)
 
 
 if __name__ == "__main__":

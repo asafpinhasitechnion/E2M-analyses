@@ -34,12 +34,13 @@ def run(folder, *args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("parts", nargs="*", choices=[*PARTS, "tables"], default=[*PARTS, "tables"])
+    # Python 3.10 checks the default of an optional positional against choices, so the default is a choice itself
+    parser.add_argument("parts", nargs="*", choices=["all", *PARTS, "tables"], default="all")
     parser.add_argument("--normalization", choices=["cpm", "none"], default="cpm")
-    parser.add_argument("--external-methods", nargs="+", default=["main", "sample_rank"])
+    parser.add_argument("--external-methods", nargs="+", default=["main"])
     args = parser.parse_args()
     os.environ["E2M_NORMALIZATION"] = args.normalization  # read by the figures and the tables
-    for part in args.parts:
+    for part in [*PARTS, "tables"] if "all" in args.parts else args.parts:
         if part == "tables":
             for method in args.external_methods:
                 run("Figures", "run_figures.py", "tables", "--external-method", method)

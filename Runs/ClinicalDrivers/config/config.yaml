@@ -24,7 +24,7 @@ target_selection:
   min_external_positive: 5
 
 # source: cBioPortal study or GEO series (default: the cohort key). drivers: key into CANCER_DRIVER_GENES (src/driver_genes.py).
-# Expression is ComBat-integrated (TCGA vs cohort); log1p is applied per side before ComBat.
+# Expression is ComBat-integrated (TCGA vs cohort); log1p is applied per side before ComBat (and tcga_zscore z-scores TCGA per gene).
 cohorts:
   paad_iatlas_prince_2022:
     label: PRINCE PDAC trial
@@ -41,7 +41,7 @@ cohorts:
     cancer: pancreatic adenocarcinoma
     drivers: PAAD
     tcga_cancers: [PAAD]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: counts
     external_expression_type: RNA-seq V2 RSEM continuous, already on a log scale (-12 to 18)
     log1p_tcga: true
     log1p_external: false
@@ -51,7 +51,7 @@ cohorts:
     cancer: lung adenocarcinoma
     drivers: LUAD
     tcga_cancers: [LUAD]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: fpkm
     external_expression_type: RNA-seq FPKM
     log1p_tcga: true
     log1p_external: true
@@ -61,10 +61,11 @@ cohorts:
     cancer: lung adenocarcinoma
     drivers: LUAD
     tcga_cancers: [LUAD]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: counts
     external_expression_type: RNA-seq V2 RSEM z-scores
     log1p_tcga: true
     log1p_external: false
+    tcga_zscore: true         # the cohort is z-scores per gene, so TCGA is z-scored per gene too
 
   difg_glass:
     label: GLASS Consortium
@@ -115,7 +116,7 @@ cohorts:
     cancer: BRCA
     drivers: BRCA
     tcga_cancers: [BRCA]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: fpkm
     external_expression_type: RNA-seq RPKM
     log1p_tcga: true
     log1p_external: true
@@ -127,7 +128,7 @@ cohorts:
     cancer: colorectal
     drivers: COLO
     tcga_cancers: [COAD, READ]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: fpkm
     external_expression_type: RNA-seq RPKM
     log1p_tcga: true
     log1p_external: true
@@ -140,7 +141,7 @@ cohorts:
     cancer: LUAD
     drivers: LUAD
     tcga_cancers: [LUAD]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: fpkm
     external_expression_type: RNA-seq RPKM
     log1p_tcga: true
     log1p_external: true
@@ -152,7 +153,7 @@ cohorts:
     cancer: PAAD
     drivers: PAAD
     tcga_cancers: [PAAD]
-    tcga_expression_measure: tpm
+    tcga_expression_measure: fpkm
     external_expression_type: RNA-seq RPKM
     log1p_tcga: true
     log1p_external: true

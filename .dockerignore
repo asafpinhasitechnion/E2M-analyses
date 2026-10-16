@@ -1,0 +1,3 @@
+# The image needs only requirements.txt; the folder itself is mounted at run time
+*
+!requirements.txt
