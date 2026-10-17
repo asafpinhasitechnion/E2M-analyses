@@ -1,169 +1,114 @@
 # Clinical Driver Alterations
 
-This analysis trains XGBoost classifiers on TCGA gene expression to predict cancer driver mutations and evaluates their performance on independent cBioPortal and GEO cohorts.
+This analysis trains XGBoost models on TCGA gene expression to predict cancer driver mutations and tests them on external cBioPortal and GEO cohorts. Predictions cover both **driver genes** (for example, any coding KRAS mutation) and **specific alterations** (such as KRAS G12C or EGFR L858R).
 
-Predictions are performed at two levels:
-- **Gene-level:** Presence of a coding mutation in a driver gene (e.g., KRAS).
-- **Alteration-level:** Presence of a specific clinically relevant alteration (e.g., KRAS G12C or EGFR L858R).
+The main integration method is `sample_rank`, which ranks genes within each sample and allows prediction sample-by-sample. For microarray cohorts, results are also compared with ComBat batch correction, which prediction.
 
-Expression is integrated by **sample-wise gene ranking (`sample_rank`)**, which enables independent, single-sample predictions; for the microarray cohorts, **ComBat**, applied jointly to TCGA and the cohort, is compared.
+## Running the analysis
 
-## 1. Running
-
-Run from `Runs/ClinicalDrivers`:
+From `Runs/ClinicalDrivers`:
 
 ```bash
-python src/prepare_cohorts.py  # Download and standardize external cohorts
+python src/prepare_cohorts.py  # Download and standardize external data
 python src/run_drivers.py      # Train TCGA models and evaluate external cohorts
 ```
 
-Both scripts support `--only` to select specific sources or cohorts; with `run_drivers.py --only`, only those cohorts' rows of the summary are replaced. By default, `prepare_cohorts.py` deletes raw downloads after standardization; use `--keep-raw` to retain them.
+Both scripts accept `--only` to run selected sources or cohorts. Raw downloads are removed after standardization unless `prepare_cohorts.py --keep-raw` is used.
 
-**Configuration files:**
-- `config/config.yaml`: Data paths, XGBoost parameters, target thresholds, and cohort-specific settings (source, driver genes, TCGA reference, expression transformations, sample filters).
-- `src/driver_genes.py`: Cancer-specific driver genes and qualifying coding variant classes.
-- `src/alterations.py`: Clinically relevant alteration definitions.
+**Configuration**
 
-**Dependencies:** `pandas`, `numpy`, `pyyaml`, `requests`, `scikit-learn`, `xgboost`, `inmoose`, and E2M.
+- `config/config.yaml`: Data paths, model settings, target thresholds, and cohort-specific inputs and filters.
+- `src/driver_genes.py`: Driver genes by cancer type and eligible coding mutation classes.
+- `src/alterations.py`: Definitions of specific clinically relevant alterations.
 
-## 2. Datasets
+**Dependencies:** Install the packages as in the top-level README (`requirements.txt`).
 
-### External cohorts
+## Datasets
 
-| Cohort | Source | Expression | TCGA reference |
+| Cohort | Source | Expression | TCGA training reference |
 |---|---|---|---|
-| `paad_iatlas_prince_2022` | cBioPortal, PRINCE | Log2 UQ counts | PAAD (counts) |
-| `paad_qcmg_uq_2016` | cBioPortal, QCMG | RNA-seq RSEM | PAAD (counts) |
-| `luad_cas_2020` | cBioPortal | RNA-seq FPKM | LUAD (FPKM) |
-| `luad_oncosg_2020` | cBioPortal | RNA-seq RSEM z-scores | LUAD (counts, z-scored) |
-| `difg_glass` | cBioPortal, GLASS | RNA-seq TPM | LGG, GBM |
-| `metabric` | cBioPortal, METABRIC | Illumina microarray | BRCA |
-| `pog570_bcgsc_2020__BRCA` | cBioPortal, POG570 | RNA-seq RPKM | BRCA (FPKM) |
-| `pog570_bcgsc_2020__COLO` | cBioPortal, POG570 | RNA-seq RPKM | COAD, READ (FPKM) |
-| `pog570_bcgsc_2020__LUAD` | cBioPortal, POG570 | RNA-seq RPKM | LUAD (FPKM) |
-| `pog570_bcgsc_2020__PAAD` | cBioPortal, POG570 | RNA-seq RPKM | PAAD (FPKM) |
-| `GSE39582` | GEO, colorectal cancer | Affymetrix GPL570 | COAD, READ |
-| `GSE31210` | GEO, lung adenocarcinoma | Affymetrix GPL570 | LUAD |
+| `paad_iatlas_prince_2022` | cBioPortal (PRINCE) | Log2 UQ counts | PAAD (counts) |
+| `paad_qcmg_uq_2016` | cBioPortal (QCMG) | RSEM | PAAD (counts) |
+| `luad_cas_2020` | cBioPortal | FPKM | LUAD (FPKM) |
+| `luad_oncosg_2020` | cBioPortal | RSEM z-scores | LUAD (counts, z-scored) |
+| `difg_glass` | cBioPortal (GLASS) | TPM | LGG, GBM |
+| `metabric` | cBioPortal | Illumina microarray | BRCA |
+| `pog570_bcgsc_2020__BRCA` | cBioPortal (POG570) | RPKM | BRCA (FPKM) |
+| `pog570_bcgsc_2020__COLO` | cBioPortal (POG570) | RPKM | COAD, READ (FPKM) |
+| `pog570_bcgsc_2020__LUAD` | cBioPortal (POG570) | RPKM | LUAD (FPKM) |
+| `pog570_bcgsc_2020__PAAD` | cBioPortal (POG570) | RPKM | PAAD (FPKM) |
+| `GSE39582` | GEO (colorectal) | Affymetrix GPL570 | COAD, READ |
+| `GSE31210` | GEO (lung adenocarcinoma) | Affymetrix GPL570 | LUAD |
 
-TCGA expression uses TPM unless otherwise indicated. POG570 subsets are defined using `ANALYSIS_COHORT` (BRCA, COLO) or `ONCOTREE_CODE` (LUAD, PAAD). GLASS samples of TCGA patients are left out, as these patients are in the training data.
+TCGA uses TPM unless another scale is listed. POG570 subsets are selected using `ANALYSIS_COHORT` (BRCA, COLO) or `ONCOTREE_CODE` (LUAD, PAAD). GLASS samples belonging to TCGA patients are excluded to avoid overlap with training data. Cancer-specific driver gene lists are defined in `src/driver_genes.py`.
 
-Driver genes are defined separately for PAAD, LUAD, BRCA, COLO, GLIOMA, and CHOL (not used by any cohort) in `src/driver_genes.py`.
+### Data preparation
 
-### Data acquisition and processing
+**TCGA:** Loaded with `e2m.Dataset.from_tcga` using `../TCGA/config/e2m.yaml`. Missing Xena GDC STAR expression, Gencode v36 annotations, MC3 gene-level labels, and MC3 mutation events are downloaded to `../TCGA/data/` (under `expression/`, `annotation/`, `mutations/`, and `mutation_events/`, respectively). Expression is restricted to protein-coding genes and converted from Xena's `log2(x+1)` scale. Counts are converted to CPM for PRINCE, QCMG, and OncoSG; other references use TPM or FPKM as configured.
 
-**TCGA:** Loaded using `e2m.Dataset.from_tcga` with configuration `../TCGA/config/e2m.yaml`. Missing files are downloaded to `../TCGA/data/`:
+**cBioPortal:** Data are downloaded from the [DataHub](https://github.com/cBioPortal/datahub) at commit `a766d41` (May 13, 2026). Duplicate gene symbols are averaged, and driver mutations come from MAF files. 
 
-- `expression/TCGA-{CANCER}.star_{tpm|fpkm|counts}.tsv.gz`: Xena GDC STAR expression.
-- `annotation/gencode.v36.annotation.gtf.gene.probemap` and `gencode.v36.annotation.gtf.gz`: Gene annotations.
-- `mutations/{CANCER}_mc3_gene_level.txt.gz`: Gene-level mutation labels.
-- `mutation_events/{CANCER}_mc3.txt.gz`: Mutation events for alteration-level labels.
+A gene is labeled 1 when a qualifying mutation is present and 0 when profiled without one. Missing sequencing data produce missing labels, including in targeted panels.
 
-Expression is restricted to protein-coding genes and converted from Xena's `log2(x+1)` scale to linear values. TCGA counts (PRINCE, QCMG, OncoSG) are converted to CPM; the other cohorts use TPM or FPKM as given.
+**GEO:** Series matrices and GPL570 annotations are downloaded from NCBI. Probes mapping to the same gene are averaged, and non-tumor samples are excluded. `GSE39582` provides TP53, KRAS, and BRAF labels (`M`/`WT`); `GSE31210` provides EGFR and KRAS status. ALK is not included because it is absent from the LUAD driver list. GEO supports **gene-level predictions only**.
 
-**cBioPortal:** Study data are downloaded from the DataHub GitHub repository at a fixed commit (`a766d41`, 2026-05-13; `DATAHUB_COMMIT` in `src/prepare_cohorts.py`). Continuous mRNA expression is preferred over z-scores, and duplicate gene symbols are averaged. Coding mutations are extracted from MAF files using E2M variant classes and the configured driver genes.
+## Mutation targets
 
-Gene labels are 1 for mutated and 0 for wild type. Samples without sequencing data receive missing labels. For targeted panels, genes not covered by the panel are also missing (e.g., ESR1 in METABRIC). The next DataHub commit lost the Git LFS file of the QCMG mutations.
+**Gene-level:** Any qualifying coding mutation in a driver gene, including missense, nonsense, nonstop, frameshift, in-frame indels, splice-site, and translation-start variants. Fusions and copy-number changes are not included.
 
-**GEO:** Series matrices and GPL570 annotations are downloaded from NCBI. Probes are mapped to gene symbols and averaged; non-tumor samples are removed.
+**Alteration-level:** Specific variants or groups of variants identified from cBioPortal MAFs or TCGA MC3 events:
 
-- `GSE39582`: TP53, KRAS, and BRAF labels from `M`/`WT` annotations.
-- `GSE31210`: EGFR and KRAS mutation labels from alteration-status annotations; ALK is excluded because it is not in the LUAD driver list.
-
-GEO cohorts provide gene-level labels only.
-
-## 3. Mutation targets
-
-**Gene-level:** A sample is positive if it contains at least one qualifying coding mutation in the driver gene. Qualifying classes include missense, nonsense, nonstop, frameshift, in-frame indels, splice-site, and translation-start mutations. Fusions and copy-number changes are not modeled.
-
-**Alteration-level:** Labels are derived from cBioPortal MAF or TCGA MC3 mutation events, using variant classes, protein/coding changes, and genomic positions where applicable.
-
-| Gene | Alteration targets |
+| Gene | Alterations |
 |---|---|
-| EGFR | Classic activating (exon 19 deletions, L858R); exon 20 insertions |
-| KRAS | G12C; broad hotspots (G12, G13, Q61, A146) |
-| BRAF | V600E; any V600 |
-| PIK3CA | Core hotspots (E542, E545, H1047); extended (+N345, C420, Q546) |
-| ESR1 | LBD mutations (Y537, D538, E380Q, S463P, L536) |
+| EGFR | Activating exon 19 deletions / L858R; exon 20 insertions |
+| KRAS | G12C; G12/G13/Q61/A146 hotspots |
+| BRAF | V600E; all V600 |
+| PIK3CA | E542/E545/H1047; extended set including N345/C420/Q546 |
+| ESR1 | LBD mutations: Y537/D538/E380Q/S463P/L536 |
 | IDH1 / IDH2 | IDH1 R132; IDH2 R140/R172 |
-| ERBB2 | TKD/exon 20 alterations; extended activating alterations (+S310) |
+| ERBB2 | TKD/exon 20 alterations; extended set including S310 |
 | MET | Exon 14 skipping-associated splice alterations |
 
-Exact matching definitions, including genomic coordinates, are implemented in `src/alterations.py`. Alteration labels inherit missingness from their corresponding gene labels and are evaluated only for genes included in the cohort's driver list.
+Exact matching rules, including genomic positions where needed, are in `src/alterations.py`. Alteration labels are missing when the gene label is missing, and only genes in the cohort's driver list are tested.
 
-## 4. Expression integration
+## Expression integration and modeling
 
-TCGA and each external cohort are processed as follows.
+Only genes shared by TCGA and the external dataset are retained. Expression is transformed according to the cohort configuration: negative values are clipped to zero before `log1p`; TCGA is always transformed. The external side gets log1p only if it's still linear - for LUAD CAS, GLASS, GSE31210, and POG570. PRINCE, QCMG, METABRIC and GSE39582, are all logged. For OncoSG's gene-wise z-scores, TCGA is z-scored per gene as well. Genes with non-finite values or zero variance in any batch (each TCGA cancer type and the cohort) are removed.
 
-**Shared preprocessing:**
-1. Retain genes present in both datasets.
-2. Apply `log1p` after clipping negative values to zero, according to configuration. TCGA is always transformed; external datasets are transformed for LUAD CAS, GLASS, GSE31210, and POG570.
-3. For OncoSG (z-scores per gene), z-score TCGA per gene as well.
-4. Remove genes with missing or non-finite values or zero variance in any batch.
+Two integration methods are used:
 
-**ComBat:** Joint batch correction using `inmoose.pycombat_norm` with default settings. TCGA cancer types are separate batches (e.g., COAD and READ), alongside the external cohort.
+- **`sample_rank` (main result):** Rank genes independently within each sample. No joint batch correction is needed, so individual samples can be predicted directly.
+- **`combat` (microarray comparison):** Joint correction with `inmoose.pycombat_norm` (default settings), treating each TCGA cancer type and the external cohort as separate batches. Used  microarray cohorts - METABRIC, GSE39582, and GSE31210.
 
-**Sample rank:** Independently rank genes within each sample. This avoids joint batch correction and allows prediction on individual samples.
+Each cohort's `integrations` setting lists its methods, with the first as the main result.
 
-Sample rank is the main result for every cohort (`output/integration_sample_rank/`). ComBat is also run for the microarray cohorts (METABRIC, GSE39582, GSE31210; `output/integration_combat/`), as in `Runs/External`. Each cohort lists its methods in `integrations` (config); the first is its main result.
+Models are trained separately for each target using all matched TCGA samples. A target needs **at least 5 positive samples in both TCGA and the external cohort**. Targets whose external labels are identical to an earlier target are skipped.
 
-## 5. Model training and evaluation
+The `XGBClassifier` uses 300 trees, learning rate 0.1, `random_state=42`, `n_jobs=-1`, `eval_metric="logloss"`, and `scale_pos_weight = n_negative / n_positive`. The configured device is `cuda` (GPU and CPU trees may differ slightly).
 
-A target is selected if it has:
-- At least **3 TCGA positives** (`min_tcga_positive`).
-- At least **5 external positives** (`min_external_positive`).
+Evaluation includes **ROC AUC**, **AUPRC** (average precision), and **normalized AUPRC**, calculated as `(AUPRC - prevalence) / (1 - prevalence)`. Only labeled external samples contribute to evaluation. A target is marked `evaluable` when those samples contain both positive and negative cases.
 
-Targets with identical external labels to an earlier target are skipped.
+## Outputs
 
-A separate `XGBClassifier` is trained for each target using all matched TCGA samples, with:
-
-```python
-n_estimators=300
-learning_rate=0.1
-random_state=42
-n_jobs=-1
-eval_metric="logloss"
-scale_pos_weight=n_negative / n_positive
-device="cuda"  # GPU trees differ slightly from CPU trees
-```
-
-Models are evaluated on external samples with available mutation labels using:
-
-- **ROC AUC**
-- **AUPRC** (average precision)
-- **Normalized AUPRC:** `(AUPRC - prevalence) / (1 - prevalence)`
-
-Targets are marked `evaluable` only when the external samples with available labels contain both classes.
-
-## 6. Outputs
-
-### Standardized data
-
-Generated by `prepare_cohorts.py` under `data/standardized/<source>/`:
+**Standardized data** are saved under `data/standardized/<source>/`:
 
 | File | Contents |
 |---|---|
-| `expression.csv.gz` | Samples × genes expression |
-| `mutations_gene_level.csv.gz` | Samples × driver genes mutation labels |
+| `expression.csv.gz` | Sample-by-gene expression matrix |
+| `mutations_gene_level.csv.gz` | Sample-by-driver-gene labels |
 | `clinical_sample.csv.gz` | Sample annotations |
-| `mutations_long.csv.gz` | Coding driver mutation events (cBioPortal only) |
+| `mutations_long.csv.gz` | Driver mutation events (cBioPortal only) |
 
-### Model results
-
-Generated by `run_drivers.py` under `output/`:
+**Model results** are saved under `output/`:
 
 | Path | Contents |
 |---|---|
-| `integration_<method>/gene/<cohort>/` | Gene-level results with that integration |
-| `integration_<method>/alteration/<cohort>/` | Alteration-level results with that integration |
-| `integration_<method>/summary/clinical_driver_results.csv` | All cohorts with that integration |
-| `summary/integration_comparison.csv` / `.xlsx` | Sample-rank vs. ComBat metrics and differences (microarray cohorts) |
-| `summary/clinical_driver_results.csv` | Main results: each cohort with its own integration (`integration` column) |
+| `integration_<method>/gene/<cohort>/` | Gene-level predictions and metrics |
+| `integration_<method>/alteration/<cohort>/` | Alteration-level predictions and metrics |
+| `integration_<method>/summary/clinical_driver_results.csv` | All cohorts evaluated with that method |
+| `summary/integration_comparison.csv` / `.xlsx` | Sample-rank vs. ComBat comparison for microarray cohorts |
+| `summary/clinical_driver_results.csv` | Main results using each cohort's selected integration |
 
-Each cohort result directory includes:
-- `targets.csv`: Target selection, counts, and metrics.
-- `probabilities.csv.gz`: External sample predictions.
-- `manifest.json`: Cohort settings, sample numbers, retained genes, and batch sizes.
+Each cohort result folder includes `targets.csv` (target counts and metrics), `probabilities.csv.gz` (sample-level predictions), and `manifest.json` (settings, sample counts, retained genes, and batch sizes). The summary includes cohort, cancer type, target, alteration definition, label mode, sample counts, prevalence, performance metrics, evaluability, and, for the main summary, integration method.
 
-`clinical_driver_results.csv` contains cohort identifiers, cancer type, label mode, target, alteration definition, positive/evaluable counts, prevalence, ROC AUC, AUPRC, normalized AUPRC, evaluability and (in the main results) the integration.
-
-**Supplementary Table S3c** is generated by `Tables/supplementary_tables.py` from the main results (each cohort's integration), retaining only rows with `evaluable = True`.
+**Supplementary Table S3c** is generated by `Tables/supplementary_tables.py` from the main summary, keeping only `evaluable = True` results.

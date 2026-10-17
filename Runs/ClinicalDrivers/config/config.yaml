@@ -15,14 +15,9 @@ xgboost:
   device: cuda                  # as in Runs/TCGA; GPU trees differ slightly from CPU trees
 
 target_selection:
-  min_tcga_positive: 3
+  min_tcga_positive: 5
   min_external_positive: 5
 
-# source: cBioPortal study or GEO series (default: the cohort key). drivers: key into CANCER_DRIVER_GENES (src/driver_genes.py).
-# log1p is applied per side before integration (and tcga_zscore z-scores TCGA per gene).
-# integrations (src/run_drivers.py integrate: sample_rank | combat): each is run, into output/integration_<method>/; the
-# first is the cohort's main result (output/summary/clinical_driver_results.csv). sample_rank for every cohort, and combat
-# as well for the microarrays (as in Runs/External); output/summary/integration_comparison.csv/.xlsx compares them.
 cohorts:
   paad_iatlas_prince_2022:
     label: PRINCE PDAC trial
