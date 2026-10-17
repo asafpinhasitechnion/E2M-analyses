@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -312,4 +313,8 @@ def run_multitask_mutation_cv(
         .sort_values("auprc_mean", ascending=False)
     )
     summary.to_csv(out_dir / f"multitask_summary_{top_n}.csv", index=False)
+    # Run size, for Supplementary Table S5
+    meta = {"n_cells": int(adata.n_obs), "n_features": int(adata.n_vars), "n_models": int(unique_models.size),
+            "n_targets": len(top_genes)}
+    (out_dir / "run_metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return fold_metrics, summary

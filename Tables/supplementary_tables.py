@@ -1,4 +1,4 @@
-"""Build Supplementary Tables S1-S4 from the run and figure outputs.
+"""Build Supplementary Tables S1-S5 from the run and figure outputs.
 
 Run after the Runs/ pipelines and the Figure 1, 4 and 5 notebooks. Writes one workbook per table to
 Tables/output/<method>/ (Tables/output/counts/<method>/ for the variant without CPM), for the run variant and External method of Figures/constants.py
@@ -30,7 +30,10 @@ EXTERNAL = ROOT / "Runs" / "External" / "output" / VARIANT
 EXTERNAL_CONFIG = ROOT / "Runs" / "External" / "config" / "e2m.yaml"
 DRIVERS = ROOT / "Runs" / "ClinicalDrivers" / "output" / "summary" / "clinical_driver_results.csv"
 SINGLE_CELL = ROOT / "Runs" / "SingleCell" / "output" / "plot_inputs"
-OUT = Path(__file__).resolve().parent / "output" / VARIANT / METHOD_LABEL
+TCGA = ROOT / "Runs" / "TCGA" / "output" / VARIANT
+DRIVER_RUNS = ROOT / "Runs" / "ClinicalDrivers" / "output"
+SINGLE_CELL_RUNS = ROOT / "Runs" / "SingleCell" / "output" / "runs"
+OUT =Path(__file__).resolve().parent / "output" / VARIANT / METHOD_LABEL
 
 # External cohorts: display name, disease context, data source, and which clinical analyses were run.
 EXTERNAL_COHORTS = {
@@ -317,6 +320,112 @@ def table_s4() -> dict[str, pd.DataFrame]:
     }
 
 
+# S5 text columns: how each input scale and integration method is described
+SCALE_TEXT = {"counts": "counts", "tpm": "TPM", "log": "log scale (as provided)"}
+LOG_TEXT = {"counts": "CPM, log1p", "tpm": "log1p", "log": "none"}
+METHOD_TEXT = {
+    "sample_rank": "within-sample gene ranks, scaled to (0, 1]",
+    "rank": "within-gene ranks across samples, per dataset",
+    "combat": "ComBat (inmoose pycombat_norm), TCGA and cohort as batches",
+}
+# Single-cell runs: display name and run folder in Runs/SingleCell/output/runs
+SINGLE_CELL_DATASETS = [
+    ("Adamson/Weissman 10X001", "admason_AdamsonWeissman2016_GSM2406675_10X001_mc300_simple_wide_run"),
+    ("Adamson/Weissman 10X005 (UPR)", "admason_AdamsonWeissman2016_GSM2406677_10X005_mc300_simple_wide_run"),
+    ("Adamson/Weissman 10X010", "admason_AdamsonWeissman2016_GSM2406681_10X010_mc300_simple_wide_run"),
+    ("Frangieh/Izar", "FrangiehIzar2021_RNA_mc300_simple_wide_run"),
+    ("McFarland/Tsherniak", "McFarlandTsherniak2020_mc300_simple_wide_run_cvgrp_cell_line"),
+    ("Replogle K562", "ReplogleWeissman2022_K562_essential_mc300_simple_wide_run"),
+    ("Replogle RPE1", "ReplogleWeissman2022_rpe1_mc300_simple_wide_run"),
+    ("Zhao/Sims", "ZhaoSims2021_mc300_simple_wide_run_cvgrp_sample"),
+    ("Tian/Kampmann", "TianKampmann2021_CRISPRa_two_guide_per-gene_mcg100_simple_wide_run"),
+]
+
+
+def _json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def table_s5() -> dict[str, pd.DataFrame]:
+    rows = []
+
+    # TCGA: one row per cross-validation run, plus TMB
+    tcga = {"source": "UCSC Xena GDC STAR counts; MC3 mutations; GENCODE v36",
+            "input_representation": "STAR counts, as log2(count + 1)",
+            "transformation": "counts, CPM, log1p" if VARIANT == "" else "counts, log1p", "integration": "none"}
+    for path in sorted(TCGA.glob("*/cv/run_metadata.json")):
+        m, cohort = _json(path), path.parents[1].name
+        rows.append({**tcga, "analysis": "TCGA mutation prediction",
+                     "dataset": "TCGA pan-cancer" if cohort == "all" else f"TCGA-{cohort}",
+                     "n_samples": m["n_samples"], "n_features": m["n_features"], "n_targets": m["n_targets"],
+                     "validation": "5-fold CV, stratified by cancer type" if cohort == "all" else "5-fold CV"})
+    m = _json(TCGA / "tmb" / "run_metadata.json")
+    rows.append({**tcga, "analysis": "TCGA TMB prediction", "dataset": "TCGA pan-cancer", "n_samples": m["n_samples"],
+                 "n_features": m["n_features"], "n_targets": 1, "validation": "5-fold CV, stratified by cancer type"})
+
+    # External cohorts: every configured integration method
+    config = yaml.safe_load(EXTERNAL_CONFIG.read_text(encoding="utf-8"))["cohorts"]
+    for cohort, (label, _, source, *_) in EXTERNAL_COHORTS.items():
+        for method in config[cohort]["methods"]:
+            m = _json(EXTERNAL / cohort / method / "manifest.json")
+            scale, cancers = m["external"]["scale"], m["tcga"]["cancers"]
+            integration = METHOD_TEXT[method.removesuffix("_shared")]
+            if method.endswith("_shared"):
+                integration += "; one model shared by Hugo, Liu, and Riaz"
+            rows.append({
+                "analysis": "External validation", "dataset": label, "source": source,
+                "input_representation": SCALE_TEXT[scale], "transformation": LOG_TEXT[scale], "integration": integration,
+                "tcga_training_data": ("TCGA pan-cancer" if len(cancers) > 1 else f"TCGA-{cancers[0]}") + f" ({m['tcga']['expression']})",
+                "n_tcga_training_samples": m["tcga"]["samples"], "n_samples": m["external"]["samples"],
+                "n_genes_before": m["external"]["loader"].get("n_expression_features"), "n_features": m["features"],
+                "n_targets": m["targets"]["n"], "validation": "trained on TCGA, tested on the cohort",
+            })
+
+    # Clinical drivers: gene-level runs of each integration (alteration targets counted with them)
+    for path in sorted(DRIVER_RUNS.glob("integration_*/gene/*/manifest.json")):
+        m = _json(path)
+        alteration = path.parents[2] / "alteration" / path.parent.name / "targets.csv"
+        n_targets = sum(pd.read_csv(p)["selected"].sum() for p in (path.parent / "targets.csv", alteration) if p.exists())
+        rows.append({
+            "analysis": "Clinical driver validation", "dataset": m["label"], "source": m["source"],
+            "input_representation": m["external_expression_type"],
+            "transformation": "log1p" if m["log1p_external"] else "none (as provided)",
+            "integration": METHOD_TEXT[m["integration"]],
+            "tcga_training_data": "TCGA-" + "/".join(m["tcga_cancers"]) + f" ({m['tcga_expression_measure']})",
+            "n_tcga_training_samples": m["tcga_samples"], "n_samples": m["external_samples"],
+            "n_features": m["n_features"], "n_targets": int(n_targets), "validation": "trained on TCGA, tested on the cohort",
+        })
+
+    # Single-cell datasets
+    single_cell = {"input_representation": "counts (adata.X)", "transformation": "normalize_total to 10,000, log1p",
+                   "integration": "none"}
+    for name, folder in SINGLE_CELL_DATASETS:
+        m = _json(SINGLE_CELL_RUNS / folder / "run_metadata.json")
+        group = m.get("cv_group_col")
+        rows.append({
+            **single_cell, "analysis": "Single-cell perturbation", "dataset": name,
+            "source": f"scPerturb (Zenodo 7041849): {m['input_file']}", "n_samples": m.get("n_samples"),
+            "n_features": m.get("n_features"), "n_targets": m.get("n_targets", m.get("n_two_guide_targets")),
+            "validation": ("train on one guide, test on the other" if name == "Tian/Kampmann"
+                           else f"5-fold CV, grouped by {group}" if group else "5-fold CV, cell level"),
+        })
+    m = _json(SINGLE_CELL_RUNS.parent / "ccle_tmb_and_multitask" / "run_metadata.json")
+    rows.append({
+        **single_cell, "transformation": "genes in fewer than 3 cells removed; normalize_total to 10,000, log1p",
+        "analysis": "Single-cell mutation", "dataset": "CCLE", "source": "Broad Single Cell Portal SCP542; DepMap mutations",
+        "n_samples": m["n_cells"], "n_features": m["n_features"], "n_targets": m["n_targets"],
+        "validation": "5-fold CV, grouped by cell line",
+    })
+
+    manifest = pd.DataFrame(rows).reindex(columns=[
+        "analysis", "dataset", "source", "input_representation", "transformation", "integration", "tcga_training_data",
+        "n_tcga_training_samples", "n_samples", "n_genes_before", "n_features", "n_targets", "validation",
+    ])
+    counts = ["n_tcga_training_samples", "n_samples", "n_genes_before", "n_features", "n_targets"]
+    manifest[counts] = manifest[counts].astype("Int64")  # whole numbers, blank where not applicable
+    return {"Table_S5": manifest}
+
+
 def write(name: str, sheets: dict[str, pd.DataFrame]) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(OUT / f"{name}.xlsx") as writer:
@@ -330,6 +439,7 @@ def main() -> None:
     write("Supplementary_Table2", table_s2())
     write("Supplementary_Table3", table_s3())
     write("Supplementary_Table4", table_s4())
+    write("Supplementary_Table5", table_s5())
 
 
 if __name__ == "__main__":
