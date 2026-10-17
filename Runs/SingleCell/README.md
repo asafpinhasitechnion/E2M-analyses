@@ -41,7 +41,7 @@ Models:
 
 - Multitask network (`src/models/multitask.py`, settings `MODEL_PARAMS` in `src/models/presets.py`; run folders end in `simple_wide_run`): fully connected, hidden layers 512 and 256 with ReLU and dropout 0.3, one sigmoid output per target, BCE loss with per-target positive weight (neg/pos, clipped to 1-30), Adam (lr 1.5e-4, weight decay 8e-4), batch 1024, up to 100 epochs, ReduceLROnPlateau on validation loss, gradient clipping 1.0. Early stopping (patience 6) on mean validation AUPRC, using a random 20% of the training cells of each fold. No input scaling.
 - Per-gene XGBoost (`src/models/per_gene.py`): `XGBClassifier` with the config parameters plus `tree_method: hist`.
-- Tian: scikit-learn `LogisticRegression` (saga, L2, C=1.0, max_iter 1000), one model per target gene.
+- Tian: per-gene `XGBClassifier` with the same parameters as the Frangieh per-gene models, one model per target gene.
 
 ## Data
 

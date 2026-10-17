@@ -8,9 +8,10 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from scipy.sparse import csr_matrix
-from sklearn.linear_model import LogisticRegression
 
+import config
 from models.multitask import compute_binary_metrics
+from models.per_gene import get_model
 
 
 def _eligible_two_guide_targets(
@@ -125,14 +126,9 @@ def _run_per_gene_direction(
         x_te = x[te_mask]
         y_te = np.where(gvals[te_mask] == pert, 1, 0).astype(int)
 
-        clf = LogisticRegression(
-            solver="saga",
-            penalty="l2",
-            C=1.0,
-            max_iter=1000,
-            random_state=seed,
-            n_jobs=1,
-        )
+        # Same XGBoost settings as the Frangieh per-gene models
+        params = {**config.XGBOOST_PARAMS, "tree_method": "hist"}
+        clf = get_model("xgboost", model_params=params)
         clf.fit(x_tr, y_tr)
         y_prob = clf.predict_proba(x_te)[:, 1]
         m = compute_binary_metrics(y_true=y_te, y_prob=y_prob, threshold=0.5)

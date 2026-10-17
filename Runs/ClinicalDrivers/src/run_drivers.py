@@ -232,6 +232,7 @@ def compare_integrations(integrations: list[str]) -> None:
         tables.append(table[metrics].add_suffix(f"_{method}"))
     wide = pd.concat(tables, axis=1).reset_index()
     wide = wide[keys + [f"{m}_{i}" for m in metrics for i in integrations]]
+    wide = wide.dropna(subset=[f"normalized_auprc_{m}" for m in integrations])  # targets run with every integration
     first, other = integrations[0], integrations[1]
     wide[f"normalized_auprc_{first}_minus_{other}"] = wide[f"normalized_auprc_{first}"] - wide[f"normalized_auprc_{other}"]
     wide = wide.sort_values(["cohort_id", "label_mode", f"normalized_auprc_{first}"], ascending=[True, True, False])
