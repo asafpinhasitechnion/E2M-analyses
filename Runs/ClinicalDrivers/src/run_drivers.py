@@ -199,9 +199,21 @@ def run_cohort(config: dict, cohort: dict, output_dir: Path, integration: str) -
     return results
 
 
-def integration_output(integrations: list[str], method: str) -> Path:
-    """The first integration (the main result) writes to output/, the others to output/integration_<method>/."""
-    return RUN_ROOT / "output" / ("" if method == integrations[0] else f"integration_{method}")
+def integration_output(method: str) -> Path:
+    """Every cohort with one integration: output/integration_<method>/."""
+    return RUN_ROOT / "output" / f"integration_{method}"
+
+
+def main_results(config: dict) -> None:
+    """output/summary/clinical_driver_results.csv: each cohort with its main (first) integration."""
+    rows = []
+    for cohort_id, cohort in config["cohorts"].items():
+        method = cohort["integrations"][0]
+        table = pd.read_csv(integration_output(method) / "summary" / "clinical_driver_results.csv")
+        rows.append(table[table["cohort_id"].eq(cohort_id)].assign(integration=method))
+    path = RUN_ROOT / "output" / "summary" / "clinical_driver_results.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.concat(rows, ignore_index=True).to_csv(path, index=False)
 
 
 def compare_integrations(integrations: list[str]) -> None:
@@ -213,7 +225,7 @@ def compare_integrations(integrations: list[str]) -> None:
     index = ["cohort_id", "label_mode", "target"]
     tables = []
     for method in integrations:
-        table = pd.read_csv(integration_output(integrations, method) / "summary" / "clinical_driver_results.csv")
+        table = pd.read_csv(integration_output(method) / "summary" / "clinical_driver_results.csv")
         table = table[table["evaluable"].eq(True)].set_index(index)  # NaN for targets not tested
         if not tables:
             tables.append(table[[k for k in keys if k not in index]])  # the labels are the same for every integration
@@ -223,7 +235,7 @@ def compare_integrations(integrations: list[str]) -> None:
     first, other = integrations[0], integrations[1]
     wide[f"normalized_auprc_{first}_minus_{other}"] = wide[f"normalized_auprc_{first}"] - wide[f"normalized_auprc_{other}"]
     wide = wide.sort_values(["cohort_id", "label_mode", f"normalized_auprc_{first}"], ascending=[True, True, False])
-    summary_dir = integration_output(integrations, first) / "summary"
+    summary_dir = RUN_ROOT / "output" / "summary"
     wide.to_csv(summary_dir / "integration_comparison.csv", index=False)
     with pd.ExcelWriter(summary_dir / "integration_comparison.xlsx") as writer:
         medians = wide.groupby(["cohort_id", "label_mode"])[[c for c in wide.columns if c.startswith("normalized_auprc")]].median()
@@ -237,9 +249,10 @@ def main() -> None:
     parser.add_argument("--only", nargs="+", help="Run only these cohorts (keys in config/config.yaml).")
     args = parser.parse_args()
     config = yaml.safe_load((RUN_ROOT / "config" / "config.yaml").read_text(encoding="utf-8"))
-    integrations = config["integrations"]
+    integrations = list(dict.fromkeys(m for cohort in config["cohorts"].values() for m in cohort["integrations"]))
     for integration in integrations:
-        run_integration(config, args, integration, integration_output(integrations, integration))
+        run_integration(config, args, integration, integration_output(integration))
+    main_results(config)
     if len(integrations) > 1:
         compare_integrations(integrations)
 
@@ -248,7 +261,7 @@ def run_integration(config: dict, args, integration: str, output_dir: Path) -> N
     print(f"Integration {integration} -> {output_dir}", flush=True)
     results = []
     for cohort_id, cohort in config["cohorts"].items():
-        if args.only and cohort_id not in args.only:
+        if integration not in cohort["integrations"] or (args.only and cohort_id not in args.only):
             continue
         print(f"Cohort {cohort_id}", flush=True)
         results += run_cohort(config, {"cohort_id": cohort_id, "source": cohort_id, **cohort}, output_dir, integration)
