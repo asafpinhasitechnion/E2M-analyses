@@ -393,7 +393,8 @@ def table_s5() -> dict[str, pd.DataFrame]:
             "integration": METHOD_TEXT[m["integration"]],
             "tcga_training_data": "TCGA-" + "/".join(m["tcga_cancers"]) + f" ({m['tcga_expression_measure']})",
             "n_tcga_training_samples": m["tcga_samples"], "n_samples": m["external_samples"],
-            "n_features": m["n_features"], "n_targets": int(n_targets), "validation": "trained on TCGA, tested on the cohort",
+            "n_genes_before": m.get("n_expression_features"), "n_features": m["n_features"], "n_targets": int(n_targets),
+            "validation": "trained on TCGA, tested on the cohort",
         })
 
     # Single-cell datasets
@@ -409,7 +410,7 @@ def table_s5() -> dict[str, pd.DataFrame]:
             "validation": ("train on one guide, test on the other" if name == "Tian/Kampmann"
                            else f"5-fold CV, grouped by {group}" if group else "5-fold CV, cell level"),
         })
-    m = _json(SINGLE_CELL_RUNS.parent / "ccle_tmb_and_multitask" / "run_metadata.json")
+    m = _json(SINGLE_CELL_RUNS / "ccle_tmb_and_multitask" / "run_metadata.json")
     rows.append({
         **single_cell, "transformation": "genes in fewer than 3 cells removed; normalize_total to 10,000, log1p",
         "analysis": "Single-cell mutation", "dataset": "CCLE", "source": "Broad Single Cell Portal SCP542; DepMap mutations",

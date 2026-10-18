@@ -186,7 +186,8 @@ def run_cohort(config: dict, cohort: dict, output_dir: Path, integration: str) -
         out.mkdir(parents=True, exist_ok=True)
         table.to_csv(out / "targets.csv", index=False)
         probabilities.to_csv(out / "probabilities.csv.gz")
-        manifest = {**cohort, "label_mode": mode, "integration": integration, "external_samples": len(external_x), "tcga_samples": len(tcga_x)}
+        manifest = {**cohort, "label_mode": mode, "integration": integration, "external_samples": len(external_x),
+                    "n_expression_features": external_x.shape[1], "tcga_samples": len(tcga_x)}  # genes before matching TCGA
         if table["selected"].any():
             manifest.update(n_features=tcga_c.shape[1], batches=batch.value_counts().to_dict())
         (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

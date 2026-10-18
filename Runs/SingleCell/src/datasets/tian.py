@@ -179,6 +179,7 @@ def run_one_file(args, input_file: str) -> None:
 
     rows = []
     pred_rows = []
+    used = np.zeros(adata.n_obs, dtype=bool)  # cells in a training or test set of either direction
     for direction in (1, 2):
         dname = "A_to_B" if direction == 1 else "B_to_A"
         train_mask, test_mask = _build_direction_masks(
@@ -190,6 +191,7 @@ def run_one_file(args, input_file: str) -> None:
             direction=direction,
             seed=args.seed + direction,
         )
+        used |= train_mask | test_mask
 
         df, pred_df = _run_per_gene_direction(
             adata=adata,
@@ -227,6 +229,8 @@ def run_one_file(args, input_file: str) -> None:
         "control_labels": list(control_labels),
         "min_cells_per_guide": int(args.min_cells_per_guide),
         "n_two_guide_targets": int(len(eligible)),
+        "n_samples": int(used.sum()),
+        "n_features": int(adata.n_vars),
         "preset": args.preset,
         "seed": int(args.seed),
         "notes": [

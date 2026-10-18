@@ -50,7 +50,7 @@ All scPerturb files are read from `Runs/SingleCell/data/`. CCLE inputs are read 
 Common to all scPerturb datasets:
 
 - Download: automatic. `run_all.py` reads the Zenodo record metadata from `https://zenodo.org/api/records/7041849` and downloads each file in `dataset_files` that is missing or smaller than the expected size. If the metadata cannot be fetched it uses `https://zenodo.org/records/7041849/files/<file name>`. Downloads resume from a `.part` file.
-- Matrix: `adata.X` as stored in the file (no layer is selected); raw integer counts (checked in Adamson 10X001, Tian and Zhao). The matrix stays sparse; the network makes one mini-batch dense at a time.
+- Matrix: `adata.X` as stored in the file (no layer is selected); raw integer counts (checked in Adamson 10X001 and 10X010, Replogle K562 and RPE1, Tian and Zhao). The Replogle files hold only a filtered set of genes (8,563 in K562, 8,749 in RPE1). The matrix stays sparse; the network makes one mini-batch dense at a time.
 - Normalization: `sc.pp.normalize_total(target_sum=10000)` then `sc.pp.log1p`.
 - No gene filtering, no HVG selection, no batch correction in this code; no cell QC except McFarland's own quality flags (below). All genes in the file are used as features.
 - Eligible targets: perturbation labels with at least `min_cells_per_gene` cells (mc300; Frangieh too since it uses single-guide cells), control labels excluded from the count. Cells with other (non-eligible) perturbations are dropped.
