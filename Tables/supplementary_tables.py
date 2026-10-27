@@ -101,7 +101,32 @@ def table_s2() -> dict[str, pd.DataFrame]:
         "cohort", "gene", "n_samples", "n_mutated", "prevalence", "auprc", "normalized_auprc",
         "roc_auc", "rank_sum_p", "rank_sum_fdr_within_cancer", "rank_sum_fdr_global",
     ]]
-    return {"Table_S2": summary, "Table_S2_per_gene": per_gene}
+    sheets = {"Table_S2": summary, "Table_S2_per_gene": per_gene}
+    if (TCGA / "BRCA" / "shap_stability").exists():
+        sheets["Table_S2c_shap_stability"] = _shap_stability("BRCA")
+    return sheets
+
+
+def _shap_stability(cohort: str) -> pd.DataFrame:
+    """Per target: how well the full-cohort top SHAP features are kept when refitting on subsamples
+    (Runs/TCGA/src/shap_stability.py)."""
+    metrics = pd.read_csv(TCGA / cohort / "cv" / "metrics.csv", index_col=0)
+    rows = []
+    for folder in sorted((TCGA / cohort / "shap_stability").iterdir()):
+        shap = pd.read_csv(folder / "mean_abs_shap.csv.gz", index_col=0)
+        runs = [c for c in shap.columns if c != "full"]
+        rank = shap[runs].rank(ascending=False)  # rank of every feature in each subsample run
+        top = shap["full"].sort_values(ascending=False).index  # full-cohort features, by importance
+        row = {"cancer_type": cohort, "gene": folder.name, "normalized_auprc": metrics.loc[folder.name, "normalized_auprc"],
+               "n_subsamples": len(runs)}
+        # Fraction of the full-cohort top-k features that are also in a run's top k, averaged over runs
+        for k in (10, 20, 50, 100):
+            row[f"top{k}_retained"] = (rank.loc[top[:k]] <= k).to_numpy().mean()
+        row["top10_within_top50"] = (rank.loc[top[:10]] <= 50).to_numpy().mean()
+        # Median over the full-cohort top-10 features of each feature's median rank across runs
+        row["median_rank_of_top10"] = rank.loc[top[:10]].median(axis=1).median()
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("normalized_auprc", ascending=False).reset_index(drop=True)
 
 
 def _external_run(cohort: str) -> Path:
