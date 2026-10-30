@@ -19,6 +19,8 @@ PLOT_INPUTS_DIR: Path = RUN_ROOT / "output" / "plot_inputs"
 RANDOM_STATE: int = int(_cfg["random_state"])
 CV_FOLDS: int = int(_cfg["cv_folds"])
 PREPROCESS_TARGET_SUM: float = float(_cfg["preprocess_target_sum"])
+PROTEIN_CODING_ONLY: bool = bool(_cfg["features"]["protein_coding_only"])
+MIN_CELLS_PER_FEATURE: int = int(_cfg["features"]["min_cells"])
 
 DATASET_FILES: dict[str, str] = dict(_cfg["dataset_files"])
 CCLE_ADATA = CCLE_DIR / _cfg["ccle_files"]["adata"]

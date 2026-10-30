@@ -51,8 +51,8 @@ Common to all scPerturb datasets:
 
 - Download: automatic. `run_all.py` reads the Zenodo record metadata from `https://zenodo.org/api/records/7041849` and downloads each file in `dataset_files` that is missing or smaller than the expected size. If the metadata cannot be fetched it uses `https://zenodo.org/records/7041849/files/<file name>`. Downloads resume from a `.part` file.
 - Matrix: `adata.X` as stored in the file (no layer is selected); raw integer counts (checked in Adamson 10X001 and 10X010, Replogle K562 and RPE1, Tian and Zhao). The Replogle files hold only a filtered set of genes (8,563 in K562, 8,749 in RPE1). The matrix stays sparse; the network makes one mini-batch dense at a time.
-- Normalization: `sc.pp.normalize_total(target_sum=10000)` then `sc.pp.log1p`.
-- No gene filtering, no HVG selection, no batch correction in this code; no cell QC except McFarland's own quality flags (below). All genes in the file are used as features.
+- Normalization: `sc.pp.normalize_total(target_sum=10000)` then `sc.pp.log1p`, on all genes in the file.
+- Features (`src/preprocess.py`, `features` in `config/config.yaml`; the same for every dataset, CCLE included): HGNC protein-coding genes (`locus_group`, HGNC 2022-01; matched by `var.ensembl_id` where the file has it, else by symbol) detected (count > 0) in at least 3 cells. No HVG selection and no batch correction; no cell QC except McFarland's own quality flags (below).
 - Eligible targets: perturbation labels with at least `min_cells_per_gene` cells (mc300; Frangieh too since it uses single-guide cells), control labels excluded from the count. Cells with other (non-eligible) perturbations are dropped.
 - Controls: cells whose label is in the control list are kept as negatives (all targets 0). Default control labels: `non-targeting`, `control`. No subsampling of controls.
 - Labels: one binary output per eligible perturbation.
@@ -141,13 +141,13 @@ Common to all scPerturb datasets:
   - Mutations: `OmicsSomaticMutations.csv` (DepMap). TODO: DepMap release (sequence-ontology `VariantInfo`, so 23Q4 or later; 1,929 models).
 - Download: manual. Place both files in `Runs/SingleCell/data/CCLE/`. The step is skipped if either is missing. `obs` must contain `Model_ID` matching `ModelID` in the mutation file.
 - Processing:
-  - `sc.pp.filter_genes(min_cells=3)`, `sc.pp.normalize_total(target_sum=10000)`, `sc.pp.log1p`.
+  - Common preprocessing (protein-coding genes in at least 3 cells, matched by symbol).
   - Mutations: coding rows only, by `VariantInfo`, as for TCGA: missense, nonsense, nonstop, frameshift, in-frame, start codon and splice site (MAF-like names up to DepMap 23Q2, which also list silent mutations; sequence-ontology terms from 23Q4). TMB of a model = number of such rows; the regression target is log1p(TMB), assigned to every cell of the model.
   - Cells whose model has no such mutation are removed.
   - Multitask targets: the 200 genes mutated (coding rows) in the largest number of the 202 models in the data, among genes mutated in at least 20 of them (ties by gene name). A cell is positive for a gene if its model carries a mutation in it.
   - No HVG selection or batch correction.
   - CV: 5-fold `KFold` over unique `Model_ID`, so all cells of a cell line are in the same fold. Used for both the XGBoost regressor and the multitask network (same `MODEL_PARAMS`).
-  - Final size: 54,759 cells from 202 models, 200 target genes. TODO: number of features after `filter_genes` (printed to the log only).
+  - Final size: 54,759 cells from 202 models, 200 target genes. Number of features in `output/runs/ccle_tmb_and_multitask/run_metadata.json`.
 
 ## Outputs
 

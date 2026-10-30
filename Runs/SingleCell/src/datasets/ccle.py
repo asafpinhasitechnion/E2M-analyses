@@ -21,6 +21,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import KFold
 
 import config
+from preprocess import preprocess as preprocess_expression  # load_ccle_adata has a preprocess flag
 from models.multitask import MultiTaskConfig, _fit_one_fold
 from models.presets import MODEL_PARAMS
 
@@ -61,9 +62,7 @@ def load_ccle_adata(
     adata = sc.read_h5ad(adata_path)
 
     if preprocess:
-        sc.pp.filter_genes(adata, min_cells=3)
-        sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
-        sc.pp.log1p(adata)
+        adata = preprocess_expression(adata)
 
     valid = load_coding_mutations(mutations_csv)
 
@@ -313,6 +312,13 @@ def run_multitask_mutation_cv(
         .sort_values("auprc_mean", ascending=False)
     )
     summary.to_csv(out_dir / f"multitask_summary_{top_n}.csv", index=False)
+    # Out-of-fold predictions per cell, and labels per cell line (model)
+    preds = pd.DataFrame(oof_probs, index=adata.obs_names, columns=top_genes)
+    preds.insert(0, "fold", oof_fold)
+    preds.insert(0, model_column, cell_models)
+    preds.to_csv(out_dir / f"multitask_oof_predictions_{top_n}.csv.gz", float_format="%.5g", index_label="cell_id")
+    labels = pd.DataFrame(Y, index=cell_models, columns=top_genes).groupby(level=0).first().astype(int)
+    labels.to_csv(out_dir / f"multitask_labels_{top_n}.csv", index_label=model_column)
     # Run size, for Supplementary Table S5
     meta = {"n_cells": int(adata.n_obs), "n_features": int(adata.n_vars), "n_models": int(unique_models.size),
             "n_targets": len(top_genes)}

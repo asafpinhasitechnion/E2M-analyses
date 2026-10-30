@@ -40,6 +40,16 @@ The order is TCGA, then Figures 1-3; External, then Figure 4; Clinical drivers; 
 
 Two run variants differ in how TCGA counts are scaled before the model: `--normalization cpm` (default; counts per million, then log1p) or `none` (log1p of the counts, no library-size step). TCGA and External write to `output/` (CPM) or `output/counts/`, Figures 1-3 to `Figures/FigureN/output/`, Figure 4 to `Figures/Figure4/output/<method>/` and the tables to `Tables/output/<method>/` (each with `counts/` before the method for the variant without CPM). Clinical drivers and single-cell (Figure 5) do not depend on the variant. Figure 4 and the tables are made for each External method in `--external-methods` (default `main`): `main` uses each cohort's first method in `Runs/External/config/e2m.yaml`; another method (e.g. `combat`) is used for the cohorts that ran it, and the first method for the others. Each executed notebook is saved in its output folder.
 
+## Side analyses
+
+Short scripts for single results of the manuscript, not run by `run_all.py`. Each reads the outputs of its run, so run it after that run (from this folder):
+
+| Analysis | Command | Output |
+|---|---|---|
+| SHAP stability in TCGA-BRCA (20 subsamples of 80%; Table S2c) | `python Runs/TCGA/src/shap_stability.py` | `Runs/TCGA/output/BRCA/shap_stability/` |
+| BRAF in melanoma with one XGBoost model | `cd Runs/External && python src/braf_xgboost.py` | `Runs/External/output/braf_xgboost.csv` |
+| Training and inference time | `python Runs/Benchmark/timing.py [--device cpu]` | `Runs/Benchmark/output/timing_<device>.csv` |
+
 ## Data
 
 Most data are downloaded by the code on first use into each run's `data/` folder. Files to place by hand:

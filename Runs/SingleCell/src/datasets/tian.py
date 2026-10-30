@@ -10,6 +10,7 @@ import scanpy as sc
 from scipy.sparse import csr_matrix
 
 import config
+from preprocess import preprocess
 from models.multitask import compute_binary_metrics
 from models.per_gene import get_model
 
@@ -157,9 +158,7 @@ def _run_per_gene_direction(
 
 def run_one_file(args, input_file: str) -> None:
     adata = sc.read_h5ad(args.data_folder / input_file)
-    target_sum = getattr(args, "preprocess_target_sum", 1e4)
-    sc.pp.normalize_total(adata, target_sum=target_sum)
-    sc.pp.log1p(adata)
+    adata = preprocess(adata)
 
     if args.gene_col not in adata.obs.columns:
         raise ValueError(f"{input_file}: missing obs[{args.gene_col!r}]")

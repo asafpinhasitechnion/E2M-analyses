@@ -368,8 +368,8 @@ def run_umap_cluster(
     }
 
 
-def compute_mutation_pca_umap(
-    mutation_labels: pd.DataFrame,
+def compute_pca_umap(
+    matrix: pd.DataFrame,
     *,
     n_components: int,
     n_neighbors: int,
@@ -379,13 +379,8 @@ def compute_mutation_pca_umap(
     n_clusters: int,
     random_state: int,
 ) -> dict:
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
-
-    values = StandardScaler().fit_transform(mutation_labels.to_numpy(dtype=float))
-    n = min(int(n_components), values.shape[0], values.shape[1])
-    pca = PCA(n_components=n, random_state=int(random_state))
-    pcs = pd.DataFrame(pca.fit_transform(values), index=mutation_labels.index, columns=[f"PC{i+1}" for i in range(n)])
+    """Standardize, reduce to n_components PCs, then UMAP/cluster with Euclidean distance (as the external cohorts)."""
+    pcs = expression_pca_components(matrix, n_components=n_components, random_state=random_state)
     out = run_umap_cluster(
         pcs,
         n_neighbors=n_neighbors,
@@ -398,7 +393,6 @@ def compute_mutation_pca_umap(
         random_state=random_state,
     )
     out["pca"] = pcs
-    out["explained_variance_ratio"] = pca.explained_variance_ratio_
     return out
 
 
@@ -408,7 +402,11 @@ def recompute_tcga_expression_embedding_spaces(
     params: dict[str, dict],
     random_state: int = 0,
 ) -> dict[str, dict]:
-    """Recompute expression and model-embedding UMAP/Leiden spaces from saved matrices."""
+    """Recompute expression and model-embedding UMAP/Leiden spaces from saved matrices.
+
+    Expression is reduced by PCA to the embedding's dimension, so both spaces are clustered on the same number of
+    dimensions with Euclidean distance.
+    """
     for cancer, bundle in bundles.items():
         if "expression" not in bundle or "embeddings" not in bundle:
             raise KeyError(
@@ -416,13 +414,12 @@ def recompute_tcga_expression_embedding_spaces(
                 "Load the TCGA bundle with load_tcga_bundle()."
             )
         p = params[cancer]
-        bundle["expression_umap"] = run_umap_cluster(
+        bundle["expression_umap"] = compute_pca_umap(
             bundle["expression"],
+            n_components=int(p.get("expr_pca_components", bundle["embeddings"].shape[1])),
             n_neighbors=int(p["expr_nn"]),
             min_dist=float(p.get("expr_min_dist", 0.3)),
             leiden_resolution=float(p["expr_leiden_res"]),
-            metric=p.get("expr_metric", "cosine"),
-            scale=bool(p.get("expr_scale", True)),
             cluster_method=p.get("expr_cluster_method", "leiden"),
             n_clusters=int(p.get("expr_clusters", 4)),
             random_state=random_state,
@@ -460,9 +457,9 @@ def add_tcga_mutation_spaces(
         if labels.shape[1] < 2:
             raise ValueError(f"{cancer}: mutation matrix has fewer than two nonzero genes.")
         bundle["mutation_labels"] = labels
-        mutation_space = lambda n_neighbors: compute_mutation_pca_umap(
+        mutation_space = lambda n_neighbors: compute_pca_umap(
             labels,
-            n_components=int(p.get("mut_pca_components", 256)),
+            n_components=int(p.get("mut_pca_components", bundle["embeddings"].shape[1])),
             n_neighbors=n_neighbors,
             min_dist=float(p.get("mut_min_dist", 0.3)),
             leiden_resolution=float(p["mut_leiden_res"]),

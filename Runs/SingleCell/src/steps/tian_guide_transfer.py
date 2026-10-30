@@ -34,6 +34,5 @@ def main() -> None:
         min_cells_per_guide=MIN_CELLS_PER_GUIDE,
         preset=RUN_NAME,
         seed=config.RANDOM_STATE,
-        preprocess_target_sum=config.PREPROCESS_TARGET_SUM,
     )
     run_one_file(args, FILE_NAME)

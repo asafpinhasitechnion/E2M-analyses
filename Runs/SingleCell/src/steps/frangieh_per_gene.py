@@ -7,6 +7,7 @@ from pathlib import Path
 import scanpy as sc
 
 import config
+from preprocess import preprocess
 from datasets.labels import frangieh_single_guide
 from models.per_gene import (
     get_genes_by_min_cells,
@@ -33,8 +34,7 @@ def main() -> None:
 
     adata = sc.read_h5ad(data_path)
     adata = frangieh_single_guide(adata)  # single-guide cells, as the multitask model
-    sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
-    sc.pp.log1p(adata)
+    adata = preprocess(adata)
 
     if GENE_COL not in adata.obs.columns:
         raise ValueError(f"{FILE_NAME}: missing obs column '{GENE_COL}'")

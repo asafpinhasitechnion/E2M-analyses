@@ -110,6 +110,39 @@ def _save_clustergrid(grid, save_path: Path | None) -> Path | None:
     return save_path
 
 
+def _coclustering_figsize(n: int) -> tuple[float, float]:
+    """Square co-clustering figure that grows with the number of rows (7 to 14 inches)."""
+    side = float(np.clip(4 + 0.065 * n, 7, 14))
+    return side, side
+
+
+def _fit_heatmap_ticklabels(grid, row_labels: list[str], col_labels: list[str], *, max_fs: float = 5, min_fs: float = 4) -> None:
+    """Label every row and column with a font that fits the row spacing (min_fs to max_fs); if rows are much
+    narrower than min_fs, label every k-th."""
+    ax = grid.ax_heatmap
+    pitch = ax.get_position().height * grid.fig.get_figheight() * 72 / max(len(row_labels), 1)  # points per row
+    fs = min(max_fs, max(min_fs, 0.95 * pitch))
+    step = 1 if pitch >= 0.8 * min_fs else int(np.ceil(0.8 * min_fs / pitch))
+    rows = np.arange(0, len(row_labels), step)
+    cols = np.arange(0, len(col_labels), step)
+    ax.set_yticks(rows + 0.5)
+    ax.set_yticklabels([row_labels[i] for i in rows], fontsize=fs, rotation=0)
+    ax.set_xticks(cols + 0.5)
+    ax.set_xticklabels([col_labels[i] for i in cols], fontsize=fs, rotation=90)
+    ax.tick_params(axis="both", length=1.5, width=0.4)
+
+
+def _corner_colorbar(grid, label: str) -> None:
+    """Small colorbar in the empty corner above the row dendrogram, with its label on top."""
+    row_dend = grid.ax_row_dendrogram.get_position()
+    col_dend = grid.ax_col_dendrogram.get_position()
+    corner = col_dend.x0 - row_dend.x0
+    grid.ax_cbar.set_position([row_dend.x0 + 0.15 * corner, col_dend.y0, 0.12 * corner, 0.5 * col_dend.height])
+    cbar = grid.ax_heatmap.collections[0].colorbar
+    cbar.ax.set_title(label, fontsize=COLORBAR_LABEL_FS, loc="left", pad=4)
+    cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS, length=2, width=0.5)
+
+
 def _palette_values(n: int, palette: str = "husl"):
     if n <= 0:
         return []
@@ -607,8 +640,11 @@ def plot_ccle_multitask_gene_bars(
     fold_df = d[d["gene"].astype(str).isin(order)].copy()
 
     cmap = POSTER_CMAPS["teal_rose"]
-    norm = Normalize(vmin=float(summary["prevalence_mean"].min()), vmax=float(summary["prevalence_mean"].max()))
-    colors = cmap(norm(summary["prevalence_mean"].to_numpy()))
+    # Color scale capped at the 90th percentile: a few very frequent genes (TP53, TTN) would otherwise flatten the rest
+    prevalence = summary["prevalence_mean"].to_numpy()
+    vmax = float(np.quantile(prevalence, 0.9))
+    norm = Normalize(vmin=float(prevalence.min()), vmax=vmax, clip=True)
+    colors = cmap(norm(prevalence))
     fig, ax = plt.subplots(figsize=figsize)
     x = np.arange(len(order), dtype=float)
     ax.bar(x, summary["plot_value"], color=colors, edgecolor="white", linewidth=0.6, width=0.78, zorder=2)
@@ -619,7 +655,7 @@ def plot_ccle_multitask_gene_bars(
 
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, pad=0.015)
+    cbar = fig.colorbar(sm, ax=ax, pad=0.015, extend="max" if prevalence.max() > vmax else "neither")
     cbar.set_label("Prevalence", fontsize=COLORBAR_LABEL_FS, rotation=270, labelpad=10)
     cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
     ylabel = _BAR_YLABEL[rank_mode].format(metric_label)
@@ -976,7 +1012,6 @@ def plot_head_weight_leiden_coclustering_matrix(
         col_cluster=do_cluster,
         cmap=CMAP_BEIGE_TEAL_PURPLE,
         figsize=figsize,
-        cbar_kws={"shrink": 0.4},
         xticklabels=True,
         yticklabels=True,
         dendrogram_ratio=(0.08, 0.08),
@@ -989,17 +1024,6 @@ def plot_head_weight_leiden_coclustering_matrix(
     ax.yaxis.tick_right()
     ax.yaxis.set_label_position("right")
 
-    row_order = grid.dendrogram_row.reordered_ind if do_cluster else range(len(co.index))
-    col_order = grid.dendrogram_col.reordered_ind if do_cluster else range(len(co.columns))
-    ax.set_yticklabels([co.index[i] for i in row_order], fontsize=5, rotation=0)
-    ax.set_xticklabels([co.columns[i] for i in col_order], fontsize=5, rotation=90)
-    ax.tick_params(axis="x", pad=-1)
-    for label in ax.get_xticklabels():
-        label.set_horizontalalignment("right")
-        label.set_rotation_mode("anchor")
-    for label in ax.get_yticklabels():
-        label.set_horizontalalignment("left")
-
     for dend_ax in [grid.ax_row_dendrogram, grid.ax_col_dendrogram]:
         for coll in dend_ax.collections:
             coll.set_linewidth(0.5)
@@ -1008,14 +1032,17 @@ def plot_head_weight_leiden_coclustering_matrix(
     if title:
         grid.fig.suptitle(title, fontsize=TITLE_FS, y=0.995)
 
-    cbar = grid.ax_heatmap.collections[0].colorbar
-    cbar.set_label(
-        "# folds co-clustered by Leiden",
-        fontsize=COLORBAR_LABEL_FS,
-        rotation=270,
-        labelpad=10,
-    )
-    cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
+    row_order = grid.dendrogram_row.reordered_ind if do_cluster else range(len(co.index))
+    col_order = grid.dendrogram_col.reordered_ind if do_cluster else range(len(co.columns))
+    _fit_heatmap_ticklabels(grid, [co.index[i] for i in row_order], [co.columns[i] for i in col_order])
+    ax.tick_params(axis="x", pad=-1)
+    for label in ax.get_xticklabels():
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+    for label in ax.get_yticklabels():
+        label.set_horizontalalignment("left")
+
+    _corner_colorbar(grid, "# folds\nco-clustered\nby Leiden")
     return _save_clustergrid(grid, save_path)
 
 
@@ -1168,10 +1195,29 @@ def plot_centroid_dendrogram(
     return _save_clustergrid(grid, save_path)
 
 
-def select_perturbations_from_clusters(summary: dict[str, object], *, excluded_clusters: tuple[int, ...] = (9,)) -> list[str]:
+def select_perturbations_from_clusters(summary: dict[str, object], *, excluded_clusters: tuple[int, ...] | None = None) -> list[str]:
+    """Perturbations in dendrogram order, without the excluded dendrogram clusters; by default the cluster holding
+    non-targeting (the perturbations without a distinct phenotype), whatever number the run gives it."""
     order: list[str] = summary["order"]  # type: ignore[assignment]
     clusters: pd.Series = summary["clusters"]  # type: ignore[assignment]
+    if excluded_clusters is None:
+        excluded_clusters = (int(clusters.loc["non-targeting"]),) if "non-targeting" in clusters.index else ()
     return [p for p in order if int(clusters.loc[p]) not in set(excluded_clusters)]
+
+
+def dominant_leiden_clusters(
+    projection_tables: dict[int, object],
+    perturbations: list[str],
+    *,
+    fold: int = 1,
+    min_fraction: float = 0.5,
+) -> list[str]:
+    """Leiden clusters of a fold holding at least min_fraction of the cells of one of the perturbations."""
+    obs = _projection_obs(projection_tables[fold])
+    ct = pd.crosstab(obs["leiden"].astype(str), obs["gene_or_perturbation"].astype(str))
+    frac = ct / ct.sum(axis=0)
+    frac = frac.loc[:, frac.columns.isin([str(p) for p in perturbations])]
+    return sorted(frac.index[(frac >= min_fraction).any(axis=1)], key=int)
 
 
 def build_fold_projection_tables(
@@ -1411,8 +1457,7 @@ def plot_coclustering_matrix(
         row_colors=co_colors,
         col_colors=co_colors,
         cmap=CMAP_BEIGE_TEAL_PURPLE,
-        figsize=(9, 9),
-        cbar_kws={"shrink": 0.4},
+        figsize=_coclustering_figsize(len(co)),
 
         # Force all perturbations to be shown
         xticklabels=True,
@@ -1436,15 +1481,6 @@ def plot_coclustering_matrix(
     ax.yaxis.tick_right()
     ax.yaxis.set_label_position("right")
 
-    ax.tick_params(axis="x", labelsize=5, rotation=90, pad=-1)
-
-    # Ensure every label is present after clustering reordering
-    row_order = grid.dendrogram_row.reordered_ind if do_cluster else range(len(co.index))
-    col_order = grid.dendrogram_col.reordered_ind if do_cluster else range(len(co.columns))
-
-    ax.set_yticklabels([co.index[i] for i in row_order], fontsize=5)
-    ax.set_xticklabels([co.columns[i] for i in col_order], fontsize=5, rotation=90)
-
     # Make dendrogram lines thinner
     for dend_ax in [grid.ax_row_dendrogram, grid.ax_col_dendrogram]:
         for coll in dend_ax.collections:
@@ -1453,15 +1489,13 @@ def plot_coclustering_matrix(
     # Give tick labels more room
     grid.fig.subplots_adjust(left=0.03, right=0.86, bottom=0.22, top=0.96)
 
-    cbar = grid.ax_heatmap.collections[0].colorbar
-    cbar.set_label(
-        "# folds co-clustered",
-        fontsize=COLORBAR_LABEL_FS,
-        rotation=270,
-        labelpad=10,
-    )
-    cbar.ax.tick_params(labelsize=COLORBAR_TICK_FS)
+    # Labels after clustering reordering, with a font that fits the row spacing
+    row_order = grid.dendrogram_row.reordered_ind if do_cluster else range(len(co.index))
+    col_order = grid.dendrogram_col.reordered_ind if do_cluster else range(len(co.columns))
+    _fit_heatmap_ticklabels(grid, [co.index[i] for i in row_order], [co.columns[i] for i in col_order])
+    ax.tick_params(axis="x", pad=-1)
 
+    _corner_colorbar(grid, "# folds\nco-clustered")
     return _save_clustergrid(grid, save_path)
 
 def plot_selected_cluster_heatmap(
@@ -1473,7 +1507,7 @@ def plot_selected_cluster_heatmap(
     fold: int = 1,
     selected_leiden_clusters: list[int | str] | None = None,
     min_cells: int = 0,
-    figsize=(5, 2.8),
+    figsize: tuple[float, float] | None = None,
 ) -> Path | None:
     clusters: pd.Series = summary["clusters"]  # type: ignore[assignment]
     d = _projection_obs(projection_tables[fold])
@@ -1506,6 +1540,8 @@ def plot_selected_cluster_heatmap(
     mat = ct_norm_display.loc[:, keep_perts_show]
     n_perts = mat.shape[1]
     n_leiden = mat.shape[0]
+    if figsize is None:
+        figsize = (float(np.clip(1.2 + 0.08 * n_perts, 5, 9)), 2.8)  # about 0.08 in per perturbation column
     grid = sns.clustermap(
         mat,
         row_cluster=n_leiden > 1,

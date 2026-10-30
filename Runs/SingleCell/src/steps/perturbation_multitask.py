@@ -7,6 +7,7 @@ import os
 import scanpy as sc
 
 import config
+from preprocess import preprocess
 from datasets.adamson import ADAMSON_CONTROL_LABELS, ADAMSON_PERTURBATION_TO_GENES
 from datasets.labels import frangieh_single_guide, mcfarland_trametinib
 from models.multitask import infer_cell_line_name, run_multitask_benchmark
@@ -107,8 +108,7 @@ def _run_one(run: dict) -> None:
         print(f"  [multitask] {file_name}: kept {adata.n_obs} of {n_before} cells with {column} in {values}")
     if run.get("relabel"):  # per-cell labels where scPerturb's perturbation column is not the cell's perturbation
         adata = run["relabel"](adata)
-    sc.pp.normalize_total(adata, target_sum=config.PREPROCESS_TARGET_SUM)
-    sc.pp.log1p(adata)
+    adata = preprocess(adata)
 
     gene_col = _resolve_gene_col(adata, file_name, gene_col_requested)
     if run.get("targets") is not None:

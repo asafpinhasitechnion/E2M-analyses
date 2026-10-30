@@ -33,6 +33,7 @@ SINGLE_CELL = ROOT / "Runs" / "SingleCell" / "output" / "plot_inputs"
 TCGA = ROOT / "Runs" / "TCGA" / "output" / VARIANT
 DRIVER_RUNS = ROOT / "Runs" / "ClinicalDrivers" / "output"
 SINGLE_CELL_RUNS = ROOT / "Runs" / "SingleCell" / "output" / "runs"
+SINGLE_CELL_DATA = ROOT / "Runs" / "SingleCell" / "data"
 OUT =Path(__file__).resolve().parent / "output" / VARIANT / METHOD_LABEL
 
 # External cohorts: display name, disease context, data source, and which clinical analyses were run.
@@ -56,7 +57,6 @@ EXTERNAL_COHORTS = {
                   "Available", "Time-to-event", "Time-to-event"),
 }
 CLINICAL_COHORTS = ["HUGO", "IMMUNOPOG", "LIU", "METABRIC", "RIAZ", "VAN_ALLEN", "MORRISON"]
-TCGA_PARAM_CANCERS = ["BRCA", "LUAD", "UCEC"]  # TCGA cancers shown in the main Figure 4 panels
 
 
 def table_s1() -> dict[str, pd.DataFrame]:
@@ -135,6 +135,13 @@ def _external_run(cohort: str) -> Path:
     return EXTERNAL / cohort / (EXTERNAL_METHOD if EXTERNAL_METHOD in methods else methods[0])
 
 
+def _external_runs(cohort: str) -> list[Path]:
+    """The cohort's External result, then its ComBat result where it has one (the microarray cohort, METABRIC)."""
+    methods = yaml.safe_load(EXTERNAL_CONFIG.read_text(encoding="utf-8"))["cohorts"][cohort]["methods"]
+    run = _external_run(cohort)
+    return [run] + ([EXTERNAL / cohort / "combat"] if "combat" in methods and run.name != "combat" else [])
+
+
 def _bh(p: pd.Series) -> np.ndarray:
     return multipletests(p, method="fdr_bh")[1]
 
@@ -159,7 +166,9 @@ def _cptac_per_site_genes() -> pd.DataFrame:
 
 
 def _notebook_params() -> tuple[dict, dict, dict]:
-    """TCGA_PARAMS, CPTAC_SITE_PARAMS_DEFAULT and EXTERNAL_CLUSTER_PARAMS as defined in the Figure 4 notebook."""
+    """TCGA_PARAMS, CPTAC_SITE_PARAMS_DEFAULT and EXTERNAL_CLUSTER_PARAMS as defined in the Figure 4 notebook.
+    TCGA_PARAMS is built there from TCGA_CLUSTER_PARAMS, one (n_neighbors, Leiden resolution) per cancer for all
+    three spaces."""
     nb = json.loads(FIG4_NOTEBOOK.read_text(encoding="utf-8"))
     found = {}
     for cell in nb["cells"]:
@@ -168,46 +177,55 @@ def _notebook_params() -> tuple[dict, dict, dict]:
         for node in ast.parse("".join(cell["source"])).body:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                 name = node.targets[0].id
-                if name in ("TCGA_PARAMS", "CPTAC_SITE_PARAMS_DEFAULT", "EXTERNAL_CLUSTER_PARAMS"):
+                if name in ("TCGA_CLUSTER_PARAMS", "CPTAC_SITE_PARAMS_DEFAULT", "EXTERNAL_CLUSTER_PARAMS"):
                     found[name] = ast.literal_eval(node.value)
-    return found["TCGA_PARAMS"], found["CPTAC_SITE_PARAMS_DEFAULT"], found["EXTERNAL_CLUSTER_PARAMS"]
+    tcga = {cancer: {f"{space}_{key}": value for space in ("expr", "emb", "mut") for key, value in (("nn", nn), ("leiden_res", res))}
+            for cancer, (nn, res) in found["TCGA_CLUSTER_PARAMS"].items()}
+    return tcga, found["CPTAC_SITE_PARAMS_DEFAULT"], found["EXTERNAL_CLUSTER_PARAMS"]
 
 
 def table_s3() -> dict[str, pd.DataFrame]:
     # S3a: cohort overview
     rows = []
     for cohort, (label, context, source, response, os_, pfs) in EXTERNAL_COHORTS.items():
-        m = json.loads((_external_run(cohort) / "manifest.json").read_text(encoding="utf-8"))
-        cancers = m["tcga"]["cancers"]
-        rows.append({
-            "cohort": label, "disease_context": context, "data_source": source,
-            "n_external_samples": m["external"]["samples"],
-            "n_profiled_samples": m["external"]["profiled_samples"],
-            "tcga_training_cohort": "TCGA pan-cancer" if len(cancers) > 1 else f"TCGA-{cancers[0]}",
-            "n_tcga_training_samples": m["tcga"]["samples"],
-            "tcga_expression_measure": m["tcga"]["expression"],
-            "normalization": m["method"],
-            "n_shared_expression_features": m["features"],
-            "n_model_targets": m["targets"]["n"],
-            "n_evaluable_mutation_targets": m["metrics"]["n_evaluable"],
-            "median_auprc": m["metrics"]["median_auprc"],
-            "median_normalized_auprc": m["metrics"]["median_normalized_auprc"],
-            "response_analysis": response, "os_analysis": os_, "pfs_analysis": pfs,
-        })
-    overview = pd.DataFrame(rows).sort_values("cohort", key=lambda s: s.str.lower()).reset_index(drop=True)
+        for k, run in enumerate(_external_runs(cohort)):
+            m = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+            cancers = m["tcga"]["cancers"]
+            rows.append({
+                "cohort": label, "disease_context": context, "data_source": source,
+                "n_external_samples": m["external"]["samples"],
+                "n_profiled_samples": m["external"]["profiled_samples"],
+                "tcga_training_cohort": "TCGA pan-cancer" if len(cancers) > 1 else f"TCGA-{cancers[0]}",
+                "n_tcga_training_samples": m["tcga"]["samples"],
+                "tcga_expression_measure": m["tcga"]["expression"],
+                "normalization": m["method"],
+                "n_shared_expression_features": m["features"],
+                "n_model_targets": m["targets"]["n"],
+                "n_evaluable_mutation_targets": m["metrics"]["n_evaluable"],
+                "median_auprc": m["metrics"]["median_auprc"],
+                "median_normalized_auprc": m["metrics"]["median_normalized_auprc"],
+                # clinical analyses use the main result only
+                **({"response_analysis": response, "os_analysis": os_, "pfs_analysis": pfs} if k == 0 else {}),
+            })
+    overview = pd.DataFrame(rows).sort_values("cohort", key=lambda s: s.str.lower(), kind="stable").reset_index(drop=True)
 
     # S3b: per-gene metrics (CPTAC/CMI per site with significance tests; other cohorts at cohort level)
-    per_gene = [_cptac_per_site_genes()]
+    per_gene = [_cptac_per_site_genes().assign(integration=_external_run("CPTAC_CMI").name)]
     for cohort in ("HUGO", "IMMUNOPOG", "LIU", "METABRIC", "RIAZ", "VAN_ALLEN"):
-        metrics = pd.read_csv(_external_run(cohort) / "metrics.csv").rename(columns={"target": "gene"})
-        per_gene.append(metrics[metrics["evaluable"]].assign(cohort=EXTERNAL_COHORTS[cohort][0], site=np.nan))
+        for run in _external_runs(cohort):
+            metrics = pd.read_csv(run / "metrics.csv").rename(columns={"target": "gene"})
+            per_gene.append(metrics[metrics["evaluable"]].assign(cohort=EXTERNAL_COHORTS[cohort][0], site=np.nan,
+                                                                 integration=run.name))
     per_gene = pd.concat(per_gene, ignore_index=True)[[
-        "cohort", "site", "gene", "n_samples", "n_positive", "prevalence", "auprc", "normalized_auprc", "roc_auc",
+        "cohort", "integration", "site", "gene", "n_samples", "n_positive", "prevalence", "auprc", "normalized_auprc", "roc_auc",
         "wilcoxon_p_greater", "wilcoxon_fdr_site",
-    ]].sort_values(["cohort", "site", "normalized_auprc"], ascending=[True, True, False], na_position="first")
+    ]].sort_values(["cohort", "integration", "site", "normalized_auprc"], ascending=[True, False, True, False],
+                   na_position="first")
 
-    # S3c: clinical-driver validation, evaluable targets
-    drivers = pd.read_csv(DRIVERS)
+    # S3c: clinical-driver validation, evaluable targets; the microarray cohorts also with ComBat
+    drivers = pd.concat([pd.read_csv(DRIVERS), pd.read_csv(DRIVER_RUNS / "integration_combat" / "summary" /
+                                                           "clinical_driver_results.csv").assign(integration="combat")],
+                        ignore_index=True)
     drivers = drivers[drivers["evaluable"].fillna(False).astype(bool)].drop(columns="evaluable")
 
     # S3d: clinical associations
@@ -251,7 +269,7 @@ def table_s3() -> dict[str, pd.DataFrame]:
                      f"clusters under {rule['MIN_OTHER_CLUSTER_SHARE']:.0%} of the samples grouped as 'other'")
     tcga, cptac_default, external = _notebook_params()
     params = []
-    for cancer in TCGA_PARAM_CANCERS:
+    for cancer in sorted(tcga):  # every cancer clustered in Figure 4
         p = tcga[cancer]
         for rep, nn, res in (("expression", "expr_nn", "expr_leiden_res"), ("embedding", "emb_nn", "emb_leiden_res"),
                              ("mutation_profile", "mut_nn", "mut_leiden_res")):
@@ -291,10 +309,11 @@ def table_s4() -> dict[str, pd.DataFrame]:
     rows = []
     for name, folder, modality, group in datasets:
         folds = pd.read_csv(SINGLE_CELL / folder / "metric_summary_per_gene_folds.csv")
-        folds = folds[folds["prevalence"] > 0].assign(normalized_auprc=lambda f: normalized_auprc(f["average_precision"], f["prevalence"]))
+        folds = folds[folds["prevalence"] > 0].assign(normalized_auprc=lambda f: normalized_auprc(f["average_precision"], f["prevalence"]),
+                                                      auprc_over_prevalence=lambda f: f["average_precision"] / f["prevalence"])
         agg = folds.groupby("gene").agg(n_folds=("fold", "nunique"), prevalence=("prevalence", "mean"),
                                         mean_auprc=("average_precision", "mean"), mean_normalized_auprc=("normalized_auprc", "mean"),
-                                        mean_roc_auc=("roc_auc", "mean"))
+                                        mean_auprc_over_prevalence=("auprc_over_prevalence", "mean"), mean_roc_auc=("roc_auc", "mean"))
         rows.append(agg.reset_index().rename(columns={"gene": "perturbation"})
                     .assign(dataset=name, modality=modality, cv_group=group))
     # Zhao/Sims: precision-recall only, from the out-of-fold predictions of the two drugs
@@ -306,12 +325,13 @@ def table_s4() -> dict[str, pd.DataFrame]:
         aps, prevalences = np.array(folds).T
         rows.append(pd.DataFrame([{
             "perturbation": drug, "n_folds": len(aps), "prevalence": prevalences.mean(), "mean_auprc": aps.mean(),
-            "mean_normalized_auprc": normalized_auprc(aps, prevalences).mean(), "mean_roc_auc": np.nan,
+            "mean_normalized_auprc": normalized_auprc(aps, prevalences).mean(),
+            "mean_auprc_over_prevalence": (aps / prevalences).mean(), "mean_roc_auc": np.nan,
             "dataset": "Zhao/Sims", "modality": "drug", "cv_group": "sample",
         }]))
     multitask = pd.concat(rows, ignore_index=True)
     multitask = multitask[["dataset", "perturbation", "modality", "cv_group", "n_folds", "prevalence", "mean_auprc",
-                           "mean_normalized_auprc", "mean_roc_auc"]]
+                           "mean_normalized_auprc", "mean_auprc_over_prevalence", "mean_roc_auc"]]
     multitask = multitask.sort_values(["dataset", "mean_auprc"], ascending=[True, False]).reset_index(drop=True)
 
     # S4b: Frangieh/Izar per-gene XGBoost
@@ -320,8 +340,10 @@ def table_s4() -> dict[str, pd.DataFrame]:
         "gene": per_gene["gene"], "n_positives": per_gene["n_positives"], "prevalence": per_gene["prevalence_mean"],
         "mean_auprc": per_gene["average_precision_mean"], "auprc_std": per_gene["average_precision_std"],
         "oof_auprc": per_gene["oof_average_precision"], "mean_roc_auc": per_gene["roc_auc_mean"],
+        # out-of-fold, as in the Figure 5 bars
+        "oof_auprc_over_prevalence": per_gene["oof_average_precision"] / per_gene["oof_prevalence"],
+        "oof_normalized_auprc": normalized_auprc(per_gene["oof_average_precision"], per_gene["oof_prevalence"]),
     })
-    per_gene["normalized_auprc"] = normalized_auprc(per_gene["mean_auprc"], per_gene["prevalence"])
     per_gene = per_gene.sort_values("mean_auprc", ascending=False).reset_index(drop=True)
 
     # S4c: Frangieh/Izar per-gene XGBoost by condition
@@ -331,6 +353,7 @@ def table_s4() -> dict[str, pd.DataFrame]:
         "prevalence": cond["oof_prevalence"], "auprc": cond["oof_average_precision"], "roc_auc": cond["oof_roc_auc"],
     })
     cond["normalized_auprc"] = normalized_auprc(cond["auprc"], cond["prevalence"])
+    cond["auprc_over_prevalence"] = cond["auprc"] / cond["prevalence"]
     cond["_order"] = cond["gene"].map({g: i for i, g in enumerate(per_gene["gene"])})
     cond = cond.sort_values(["_order", "condition"]).drop(columns="_order").reset_index(drop=True)
 
@@ -369,6 +392,15 @@ SINGLE_CELL_DATASETS = [
 
 def _json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _h5ad_n_genes(path: Path) -> int | None:
+    """Genes in an .h5ad input (its var index), without loading the matrix; None if the file is not here."""
+    if not path.exists():
+        return None
+    import h5py
+    with h5py.File(path, "r") as f:
+        return len(f["var"][f["var"].attrs["_index"]])
 
 
 def table_s5() -> dict[str, pd.DataFrame]:
@@ -423,24 +455,23 @@ def table_s5() -> dict[str, pd.DataFrame]:
         })
 
     # Single-cell datasets
-    single_cell = {"input_representation": "counts (adata.X)", "transformation": "normalize_total to 10,000, log1p",
-                   "integration": "none"}
+    single_cell = {"input_representation": "counts (adata.X)", "integration": "none",
+                   "transformation": "normalize_total to 10,000, log1p; features: HGNC protein-coding genes detected in at least 3 cells"}
     for name, folder in SINGLE_CELL_DATASETS:
         m = _json(SINGLE_CELL_RUNS / folder / "run_metadata.json")
         group = m.get("cv_group_col")
         rows.append({
             **single_cell, "analysis": "Single-cell perturbation", "dataset": name,
             "source": f"scPerturb (Zenodo 7041849): {m['input_file']}", "n_samples": m.get("n_samples"),
-            "n_features": m.get("n_features"), "n_targets": m.get("n_targets", m.get("n_two_guide_targets")),
+            "n_genes_before": _h5ad_n_genes(SINGLE_CELL_DATA / m["input_file"]), "n_features": m.get("n_features"), "n_targets": m.get("n_targets", m.get("n_two_guide_targets")),
             "validation": ("train on one guide, test on the other" if name == "Tian/Kampmann"
                            else f"5-fold CV, grouped by {group}" if group else "5-fold CV, cell level"),
         })
     m = _json(SINGLE_CELL_RUNS / "ccle_tmb_and_multitask" / "run_metadata.json")
     rows.append({
-        **single_cell, "transformation": "genes in fewer than 3 cells removed; normalize_total to 10,000, log1p",
-        "analysis": "Single-cell mutation", "dataset": "CCLE", "source": "Broad Single Cell Portal SCP542; DepMap mutations",
-        "n_samples": m["n_cells"], "n_features": m["n_features"], "n_targets": m["n_targets"],
-        "validation": "5-fold CV, grouped by cell line",
+        **single_cell, "analysis": "Single-cell mutation", "dataset": "CCLE", "source": "Broad Single Cell Portal SCP542; DepMap mutations",
+        "n_samples": m["n_cells"], "n_genes_before": _h5ad_n_genes(SINGLE_CELL_DATA / "CCLE" / "CCLE_adata.h5ad"),
+        "n_features": m["n_features"], "n_targets": m["n_targets"], "validation": "5-fold CV, grouped by cell line",
     })
 
     manifest = pd.DataFrame(rows).reindex(columns=[

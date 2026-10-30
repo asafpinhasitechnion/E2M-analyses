@@ -1,6 +1,9 @@
 random_state: 42
 cv_folds: 5
 preprocess_target_sum: 10000.0         # normalize_total target before log1p
+features:                              # expression features, for every dataset (preprocess.py)
+  protein_coding_only: true            # HGNC protein-coding genes
+  min_cells: 3                         # detected (count > 0) in at least this many cells
 
 xgboost:
   n_estimators: 300

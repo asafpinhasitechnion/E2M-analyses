@@ -29,7 +29,7 @@ def main():
     parser.add_argument("--config", type=Path, default=RUN_ROOT / "config" / "e2m.yaml")
     parser.add_argument("--data-dir", type=Path, default=RUN_ROOT / "data")
     parser.add_argument("--cohort", default="BRCA")
-    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--fraction", type=float, default=0.8)
     args = parser.parse_args()
 
