@@ -2,7 +2,7 @@
 
 This analysis trains XGBoost models on TCGA gene expression to predict cancer driver mutations and tests them on external cBioPortal and GEO cohorts. Predictions cover both **driver genes** (for example, any coding KRAS mutation) and **specific alterations** (such as KRAS G12C or EGFR L858R).
 
-The main integration method is `sample_rank`, which ranks genes within each sample and allows prediction sample-by-sample. For microarray cohorts, results are also compared with ComBat batch correction, which prediction.
+The main integration method is `sample_rank`, which ranks genes within each sample and allows prediction sample-by-sample. For microarray cohorts, results are also compared with ComBat batch correction, which corrects the whole cohort jointly with TCGA, so samples cannot be predicted one by one.
 
 ## Running the analysis
 
@@ -78,7 +78,7 @@ Only genes shared by TCGA and the external dataset are retained. Expression is t
 Two integration methods are used:
 
 - **`sample_rank` (main result):** Rank genes independently within each sample. No joint batch correction is needed, so individual samples can be predicted directly.
-- **`combat` (microarray comparison):** Joint correction with `inmoose.pycombat_norm` (default settings), treating each TCGA cancer type and the external cohort as separate batches. Used  microarray cohorts - METABRIC, GSE39582, and GSE31210.
+- **`combat` (microarray comparison):** Joint correction with `inmoose.pycombat_norm` (default settings), treating each TCGA cancer type and the external cohort as separate batches. Used for the microarray cohorts: METABRIC, GSE39582, and GSE31210.
 
 Each cohort's `integrations` setting lists its methods, with the first as the main result.
 
