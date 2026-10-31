@@ -78,7 +78,7 @@ cohorts:
     tcga_cancers: [SKCM]
     tcga_expression: star_counts
     scale: log                # provided as batch-corrected logCPM
-    methods: [rank]           # per-gene rank: predicts better than sample_rank here
+    methods: [rank]           # per-gene rank: the data are already batch-corrected across studies
     target_ranking: {file: "../TCGA/output/{variant}/SKCM/cv/metrics.csv", top_n: 20}
 
 # Models shared by several cohorts (method <name> of each): one model trained once on TCGA, on the genes all the cohorts

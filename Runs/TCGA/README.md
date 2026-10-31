@@ -4,14 +4,7 @@ Predicts gene mutation status and tumor mutational burden (TMB) from RNA express
 
 ## Installation
 
-Python 3.10. Install PyTorch with CUDA, then E2M (https://github.com/yizhak-lab-ccg/E2M) with its SHAP extra:
-
-```
-pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126
-pip install "e2m[interpretation] @ git+https://github.com/yizhak-lab-ccg/E2M.git@b201b22"
-```
-
-E2M's `requirements-lock.txt` lists the exact package versions.
+Install the packages as in the top-level README (`requirements.txt`, which includes E2M at commit `b201b22`).
 
 ## Running
 
@@ -54,7 +47,7 @@ Samples: expression and mutation labels are matched on the sample ID `TCGA-XX-XX
 
 Mutation targets: protein-coding genes mutated in at least 5% of the matched samples, then the 400 most frequent.
 
-TMB: number of coding MC3 events per sample (Missense_Mutation, Frame_Shift_Del, Frame_Shift_Ins, Nonsense_Mutation, Nonstop_Mutation, In_Frame_Del, In_Frame_Ins, Translation_Start_Site, Splice_Site). Target: log2(TMB + 1). 
+TMB: number of coding MC3 events per sample (Missense_Mutation, Frame_Shift_Del, Frame_Shift_Ins, Nonsense_Mutation, Nonstop_Mutation, In_Frame_Del, In_Frame_Ins, Translation_Start_Site, Splice_Site). Samples without such events are excluded. Target: log2(TMB + 1).
 
 ## Models
 

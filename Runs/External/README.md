@@ -15,7 +15,7 @@ python src/run_external.py --normalization none         # TCGA counts without CP
 ```
 
 Cohort settings are in `config/e2m.yaml`, including the matching TCGA cancer types, expression inputs, data scale, and integration methods. 
-All cohorts use `sample_rank`, ranking the genes withing each sample, except for Morrison which uses `rank`, which turns sample's percentile for each gene within its own cohort since it's after combat.
+All cohorts use `sample_rank` (genes ranked within each sample), except Morrison, which uses `rank` (each gene ranked across the samples of its own cohort), since its data are already batch-corrected logCPM across studies.
 
 By default, the melanoma cohorts use the **top 20 TCGA-SKCM mutation targets**, ranked by normalized AUPRC in `Runs/TCGA/output/SKCM/cv/metrics.csv`. Use `--top-n` to change this number.
 
@@ -34,13 +34,13 @@ By default, the melanoma cohorts use the **top 20 TCGA-SKCM mutation targets**, 
 Data are stored in `data/external/<folder>/`. Most public datasets are downloaded by the pipeline. **CPTAC/CMI data and the supplementary Excel tables for ImmunoPOG, Hugo, and Van Allen must be supplied manually.**
 
 - **CPTAC/CMI:** Download STAR gene counts, masked somatic MAFs, the sample sheet, `sample.tsv`, and `clinical.tsv` from NCI GDC projects CPTAC-2, CPTAC-3, CMI-MBC, and CMI-MPC (original cart: 2026-02-15). Prepare `expression_counts.tsv.gz` from protein-coding, unstranded counts and `mutations_merged.maf.gz` from the MAFs. Results are grouped by primary site, with GDC project as batch.
-- **ImmunoPOG:** Expression counts and coding mutations are downloaded from [BCGSC](https://www.bcgsc.ca/downloads/immunoPOG/). Add Pender et al. (2021) Supplementary Table 1, `10780432ccr201163-sup-240190_4_supp_6604687_qh8c2m.xlsx`, for clinical data. Includes 98 patients with RNA, mutation, and clinical data; response is defined as DCB versus NCB.
-- **METABRIC:** Downloaded from the [cBioPortal datahub](https://github.com/cBioPortal/datahub) (`brca_metabric`, commit `a022eca`). Contains 1,980 microarray expression samples. Mutation data cover a 173-gene panel, so genes outside the panel have missing labels (1,904 RNA samples are mutation-profiled). Models train on TCGA-BRCA TPM.
-- **Hugo:** RNA counts come from GEO [GSE78220](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE78220). Add Hugo et al. (2016) Supplementary Table S1, `NIHMS765463-supplement-5.xlsx`, for mutations and clinical data. There are 28 RNA samples from 27 patients.
-- **Liu:** Downloaded from the [authors' repository](https://github.com/vanallenlab/schadendorf-pd1) (commit `536010a`). Includes 121 patients with RNA, with mutation profiling and OS, PFS, and response annotations from the study.
+- **ImmunoPOG:** Expression counts and coding mutations are downloaded from [BCGSC](https://www.bcgsc.ca/downloads/immunoPOG/). Add Pender et al. (2021) Supplementary Table 1, `10780432ccr201163-sup-240190_4_supp_6604687_qh8c2m.xlsx`, for clinical data. Response is defined as DCB versus NCB.
+- **METABRIC:** Downloaded from the [cBioPortal datahub](https://github.com/cBioPortal/datahub) (`brca_metabric`, commit `a022eca`). Microarray expression; mutation data cover a 173-gene panel, so genes outside the panel have missing labels. Models train on TCGA-BRCA TPM.
+- **Hugo:** RNA counts come from GEO [GSE78220](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE78220). Add Hugo et al. (2016) Supplementary Table S1, `NIHMS765463-supplement-5.xlsx`, for mutations and clinical data.
+- **Liu:** Downloaded from the [authors' repository](https://github.com/vanallenlab/schadendorf-pd1) (commit `536010a`). Includes mutation profiling and OS, PFS, and response annotations from the study.
 - **Riaz:** Downloaded from the [authors' repository](https://github.com/riazn/bms038_analysis) (commit `137111c`). Includes pre- and on-treatment RNA, but only pre-treatment RNA samples with matching exomes receive mutation labels. Clinical endpoints are retained for both timepoints.
 - **Van Allen:** TPM expression is downloaded from the [authors' repository](https://github.com/vanallenlab/VanAllen_CTLA4_Science_RNASeq_TPM) (commit `ca459ce`). Add Van Allen et al. (2015) Supplementary Tables S1 (`tables1.mutation_list_all_patients.xlsx`) and S2 (`tables2.clinical_and_genome_characteristics_each_patient.xlsx`). Two patients without exomes (Pat20 and Pat91) had clinical data but no mutation labels. Models train on TCGA-SKCM TPM.
-- **Morrison:** Downloaded from the [authors' repository](https://github.com/ParkerICI/MORRISON-1-public) (commit `a4ac597`), using the supplied batch-corrected logCPM. Contains 442 RNA samples from 371 subjects, of which 209 have matched mutation labels. This combined dataset **overlaps with Liu, Riaz, and Van Allen**. OS/PFS times are available, but event status is not.
+- **Morrison:** Downloaded from the [authors' repository](https://github.com/ParkerICI/MORRISON-1-public) (commit `a4ac597`), using the supplied batch-corrected logCPM. This combined dataset **overlaps with Liu, Riaz, and Van Allen**. OS/PFS times are available, but event status is not.
 
 ## Outputs
 
