@@ -17,32 +17,46 @@ Python 3.10. `requirements.txt` has the exact versions of all packages (PyTorch 
 python -m pip install -r requirements.txt
 ```
 
-Or with Docker (the image holds the software; this folder is mounted with the code, data and outputs):
+Or with Docker:
 
 ```
 docker build -t e2m-analyses .
 docker run --gpus all --rm -v "<this folder>":/work e2m-analyses python run_all.py
 ```
 
-A GPU is used when available (the neural networks, and XGBoost in TCGA).
+A GPU is used when available for the neural networks, and XGBoost in TCGA.
 
 ## Running
 
 From this folder:
 
 ```
-python run_all.py                                   # everything, TCGA counts with CPM
-python run_all.py tcga external tables --normalization none   # the variant without CPM (log1p of counts)
-python run_all.py external singlecell               # selected parts, in this order
+python run_all.py                                                 # everything
+python run_all.py external singlecell                             # selected parts
+python Figures/run_figures.py tcga external singlecell tables     # only the figures and tables, from the saved outputs
 ```
 
-The order is TCGA, then Figures 1-3; External, then Figure 4; Clinical drivers; Single-cell, then Figure 5; and last the supplementary tables. External and Clinical drivers read the TCGA data folder (`Runs/TCGA/data`). Figures alone: `python Figures/run_figures.py tcga external singlecell tables`.
+Parts run in this order: TCGA (then Figures 1-3), External (then Figure 4), Clinical drivers, Single-cell (then Figure 5), and the supplementary tables. Each run writes to its `output/` folder, figures to `Figures/FigureN/output/` (with the executed notebook) and tables to `Tables/output/main/`. External and Clinical drivers use the TCGA data, so TCGA runs first.
 
-Two run variants differ in how TCGA counts are scaled before the model: `--normalization cpm` (default; counts per million, then log1p) or `none` (log1p of the counts, no library-size step). TCGA and External write to `output/` (CPM) or `output/counts/`, Figures 1-3 to `Figures/FigureN/output/`, Figure 4 to `Figures/Figure4/output/<method>/` and the tables to `Tables/output/<method>/` (each with `counts/` before the method for the variant without CPM). Clinical drivers and single-cell (Figure 5) do not depend on the variant. Figure 4 and the tables are made for each External method in `--external-methods` (default `main`): `main` uses each cohort's first method in `Runs/External/config/e2m.yaml`; another method (e.g. `combat`) is used for the cohorts that ran it, and the first method for the others. Each executed notebook is saved in its output folder.
+Two options change the analysis:
+
+- `--normalization none`: TCGA counts are log1p-transformed without CPM (default `cpm`: counts per million, then log1p). TCGA, External, Figures 1-4 and the tables then write to `counts/` subfolders.
+- `--external-methods combat`: Figure 4 and the tables use ComBat for the cohorts that ran it, and each cohort's main method for the others (default `main`: each cohort's first method in `Runs/External/config/e2m.yaml`). They write to `combat/` instead of `main/`.
+
+## Using the saved models
+
+The trained models and all outputs are on Zenodo (DOI). [`check_predictions.ipynb`](check_predictions.ipynb) loads a saved model, predicts with it, and checks that the saved models reproduce the saved predictions and metrics. In short:
+
+```python
+import e2m
+model = e2m.E2MModel.load("Runs/TCGA/output/BRCA/model")
+data = e2m.Dataset.from_tcga(["BRCA"], data_dir="Runs/TCGA/data", config="Runs/TCGA/config/e2m.yaml")
+scores = model.predict(data)          # samples x mutation targets; also takes a samples x genes DataFrame
+```
 
 ## Side analyses
 
-Short scripts for single results of the manuscript, not run by `run_all.py`. Each reads the outputs of its run, so run it after that run (from this folder):
+Short scripts for single results, not run by `run_all.py`; run each after its run, from this folder:
 
 | Analysis | Command | Output |
 |---|---|---|
