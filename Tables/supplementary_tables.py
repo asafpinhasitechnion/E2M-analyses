@@ -39,22 +39,22 @@ OUT =Path(__file__).resolve().parent / "output" / VARIANT / METHOD_LABEL
 # External cohorts: display name, disease context, data source, and which clinical analyses were run.
 EXTERNAL_COHORTS = {
     "CPTAC_CMI": ("CPTAC/CMI", "Pan-cancer", "NCI GDC: CPTAC-2, CPTAC-3, CMI-MBC, and CMI-MPC",
-                  "Not available", "Time-to-event", "Not available"),
+                  "Not available", "Available", "Not available"),
     "HUGO": ("Hugo", "Melanoma immunotherapy", "GEO GSE78220 and Hugo et al. 2016 Table S1",
-             "Available", "Time-to-event", "Not available"),
+             "Available", "Available", "Not available"),
     "IMMUNOPOG": ("ImmunoPOG", "Pan-cancer immunotherapy", "BC Cancer GSC (bcgsc.ca/downloads/immunoPOG) and Pender et al. 2021 Table S1",
-                  "Available", "Time-to-event", "Time-to-event"),
+                  "Available", "Available", "Available"),
     "LIU": ("Liu", "Melanoma immunotherapy", "github.com/vanallenlab/schadendorf-pd1",
-            "Available", "Time-to-event", "Time-to-event"),
+            "Available", "Available", "Available"),
     "METABRIC": ("METABRIC", "Breast cancer", "cBioPortal brca_metabric",
-                 "Not available", "Time-to-event", "Not available"),
+                 "Not available", "Available", "Not available"),
     "MORRISON": ("Morrison", "Melanoma immunotherapy", "github.com/ParkerICI/MORRISON-1-public",
                  "Available", "Not available", "Not available"),
     "RIAZ": ("Riaz", "Melanoma immunotherapy", "github.com/riazn/bms038_analysis",
-             "Available", "Time-to-event", "Time-to-event"),
+             "Available", "Available", "Available"),
     "VAN_ALLEN": ("Van Allen", "Melanoma immunotherapy",
                   "github.com/vanallenlab/VanAllen_CTLA4_Science_RNASeq_TPM and Van Allen et al. 2015 Tables S1-S2",
-                  "Available", "Time-to-event", "Time-to-event"),
+                  "Available", "Available", "Available"),
 }
 CLINICAL_COHORTS = ["HUGO", "IMMUNOPOG", "LIU", "METABRIC", "RIAZ", "VAN_ALLEN", "MORRISON"]
 
@@ -260,30 +260,23 @@ def table_s3() -> dict[str, pd.DataFrame]:
         "degrees_of_freedom", "p_value", "p_fdr", "status",
     ])
 
-    # S3e: clustering parameters used for the Figure 4 panels (the over-clustering rule of figure4_helpers)
-    rule = {node.targets[0].id: ast.literal_eval(node.value)
-            for node in ast.parse((ROOT / "Figures" / "Figure4" / "figure4_helpers.py").read_text(encoding="utf-8")).body
-            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in ("MAX_MUTATION_CLUSTERS", "OVERCLUSTERED_MUTATION_NN", "MIN_OTHER_CLUSTER_SHARE")}
-    MUTATION_RULE = (f"if more than {rule['MAX_MUTATION_CLUSTERS']} clusters: n_neighbors {rule['OVERCLUSTERED_MUTATION_NN']}, "
-                     f"clusters under {rule['MIN_OTHER_CLUSTER_SHARE']:.0%} of the samples grouped as 'other'")
+    # S3e: clustering parameters used for the Figure 4 panels
     tcga, cptac_default, external = _notebook_params()
     params = []
     for cancer in sorted(tcga):  # every cancer clustered in Figure 4
         p = tcga[cancer]
         for rep, nn, res in (("expression", "expr_nn", "expr_leiden_res"), ("embedding", "emb_nn", "emb_leiden_res"),
                              ("mutation_profile", "mut_nn", "mut_leiden_res")):
-            params.append(("TCGA", cancer, rep, p[nn], p.get("mut_min_dist", 0.3) if rep == "mutation_profile" else 0.3, p[res],
-                           MUTATION_RULE if rep == "mutation_profile" else ""))
+            params.append(("TCGA", cancer, rep, p[nn], p.get("mut_min_dist", 0.3) if rep == "mutation_profile" else 0.3, p[res]))
     for rep, key in (("embedding", "emb"), ("expression", "expr")):
         params.append(("CPTAC/CMI (per site)", "all sites (default)", rep, cptac_default[f"{key}_nn"],
-                       cptac_default[f"{key}_min_dist"], cptac_default[f"{key}_leiden_res"], ""))
+                       cptac_default[f"{key}_min_dist"], cptac_default[f"{key}_leiden_res"]))
     for cohort, p in external.items():
         for rep in ("embedding", "expression"):  # one set per cohort for both (older notebooks: one per space)
             q = p.get(rep, p)
-            params.append(("External cohort", cohort, rep, q["n_neighbors"], q["min_dist"], q["leiden_resolution"], ""))
+            params.append(("External cohort", cohort, rep, q["n_neighbors"], q["min_dist"], q["leiden_resolution"]))
     params = pd.DataFrame(params, columns=["panel_group", "cohort_or_site", "representation", "umap_n_neighbors",
-                                           "umap_min_dist", "leiden_resolution", "note"])
+                                           "umap_min_dist", "leiden_resolution"])
 
     return {
         "S3a_cohort_overview": overview, "S3b_external_per_gene": per_gene, "S3c_driver_validation": drivers,
