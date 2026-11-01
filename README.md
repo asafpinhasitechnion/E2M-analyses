@@ -45,7 +45,7 @@ Two options change the analysis:
 
 ## Using the saved models
 
-The trained models and all outputs are on Zenodo (DOI). [`check_predictions.ipynb`](check_predictions.ipynb) loads a saved model, predicts with it, and checks that the saved models reproduce the saved predictions and metrics. In short:
+The trained models and all outputs are on Zenodo ([10.5281/zenodo.23811771](https://doi.org/10.5281/zenodo.23811771)). [`check_predictions.ipynb`](check_predictions.ipynb) loads a saved model, predicts with it, and checks that the saved models reproduce the saved predictions and metrics. In short:
 
 ```python
 import e2m
