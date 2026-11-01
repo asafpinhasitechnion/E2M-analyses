@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CUBLAS_WORKSPACE_CONFIG=:4096:8 \
-    E2M_COMMIT=b201b223154aaa15518ec8faab9df01bde04bec5 \
+    E2M_COMMIT=af9bf8cf954574bebb88adf98d969381b9175d24 \
     PATH=/opt/venv/bin:$PATH
 
 # python3.10-dev and build-essential: inmoose is built from source

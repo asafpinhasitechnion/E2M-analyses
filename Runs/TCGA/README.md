@@ -4,7 +4,7 @@ Predicts gene mutation status and tumor mutational burden (TMB) from RNA express
 
 ## Installation
 
-Install the packages as in the top-level README (`requirements.txt`, which includes E2M at commit `b201b22`).
+Install the packages as in the top-level README (`requirements.txt`, which includes E2M v0.2.0, commit `af9bf8c`).
 
 ## Running
 

@@ -21,7 +21,7 @@ cuda-toolkit==12.6.3 ; sys_platform == "linux"
 cycler==0.12.1
 debugpy==1.8.22
 decorator==5.3.1
-e2m @ git+https://github.com/yizhak-lab-ccg/E2M.git@b201b223154aaa15518ec8faab9df01bde04bec5
+e2m @ git+https://github.com/yizhak-lab-ccg/E2M.git@af9bf8cf954574bebb88adf98d969381b9175d24
 et_xmlfile==2.0.0
 exceptiongroup==1.3.1
 executing==2.3.0

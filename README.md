@@ -11,7 +11,7 @@ Code for the analyses, figures and supplementary tables of the manuscript. Model
 
 ## Installation
 
-Python 3.10. `requirements.txt` has the exact versions of all packages (PyTorch for CUDA 12.6, E2M at commit `b201b22`; inmoose needs a C++ compiler):
+Python 3.10. `requirements.txt` has the exact versions of all packages (PyTorch for CUDA 12.6, E2M v0.2.0, commit `af9bf8c`; inmoose needs a C++ compiler):
 
 ```
 python -m pip install -r requirements.txt
